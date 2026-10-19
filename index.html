@@ -1,0 +1,2342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>
+:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;font:14px system-ui,-apple-system,sans-serif}
+img{max-width:100%}[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<title>RB Matchmaking</title>
+<style>
+/* Layout: sticky ops header + tab strip; content column max 1080px; pairings as a two-up card grid collapsing to one column on phones. */
+:root{
+  --bg:#E9EDF2; --surface:#FFFFFF; --surface-2:#F2F5F9; --sunk:#DFE6ED;
+  --ink:#13202C; --muted:#5B6B7B; --line:#C9D4DF;
+  --accent:#1C5F7C; --accent-soft:#D6E8F0; --gold:#8E6210;
+  --good:#1B7345; --good-soft:#D7EEE1;
+  --warn:#9B5A07; --warn-soft:#F6E6CD;
+  --bad:#A32F2F; --bad-soft:#F6DDDD;
+  --t0:#6B7A89; --t1:#1C6E8C; --t2:#6A4FB5; --t3:#8E6210; --t4:#1B7345;
+  --display:"Chakra Petch",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0D141B; --surface:#161F29; --surface-2:#1B2733; --sunk:#111A22;
+    --ink:#E4EBF2; --muted:#93A4B4; --line:#2A3845;
+    --accent:#63C2E4; --accent-soft:#17323F; --gold:#E0B043;
+    --good:#4CC183; --good-soft:#12301F;
+    --warn:#E3A541; --warn-soft:#352513;
+    --bad:#E7736C; --bad-soft:#36191A;
+    --t0:#8EA0B0; --t1:#63C2E4; --t2:#A98BEA; --t3:#E0B043; --t4:#4CC183;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0D141B; --surface:#161F29; --surface-2:#1B2733; --sunk:#111A22;
+  --ink:#E4EBF2; --muted:#93A4B4; --line:#2A3845;
+  --accent:#63C2E4; --accent-soft:#17323F; --gold:#E0B043;
+  --good:#4CC183; --good-soft:#12301F;
+  --warn:#E3A541; --warn-soft:#352513;
+  --bad:#E7736C; --bad-soft:#36191A;
+  --t0:#8EA0B0; --t1:#63C2E4; --t2:#A98BEA; --t3:#E0B043; --t4:#4CC183;
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5;-webkit-text-size-adjust:100%}
+h1,h2,h3{font-family:var(--display);font-weight:600;margin:0;text-wrap:balance;letter-spacing:.01em}
+button{font:inherit;color:inherit}
+.wrap{max-width:1080px;margin:0 auto;padding-inline:16px;padding-block:0 56px}
+
+/* header */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--surface);border-bottom:1px solid var(--line)}
+.top-in{max-width:1080px;margin:0 auto;padding-inline:16px;padding-block:12px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{display:flex;flex-direction:column;gap:1px;min-width:0}
+.brand h1{font-size:20px;line-height:1.1}
+.brand .sub{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.spacer{flex:1 1 auto;min-width:0}
+.hstat{display:flex;gap:16px;align-items:baseline}
+.hstat b{font-family:var(--display);font-size:20px;font-variant-numeric:tabular-nums}
+.hstat span{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:block}
+
+.btn{border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:7px 13px;cursor:pointer;font-size:14px;font-weight:500;transition:background .12s,border-color .12s}
+.btn:hover{background:var(--sunk)}
+.btn:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.ghost{background:transparent}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn.sm{padding:4px 9px;font-size:13px}
+
+.dirty{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--warn);background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent);padding:3px 8px;border-radius:999px;white-space:nowrap}
+
+.tabs{display:flex;gap:2px;max-width:1080px;margin:0 auto;padding-inline:16px;overflow-x:auto}
+.tab{background:none;border:0;border-bottom:2px solid transparent;padding:9px 12px;cursor:pointer;font-family:var(--display);font-size:14px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+
+section.panel{padding-top:20px}
+.panel-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.panel-head h2{font-size:17px;text-transform:uppercase;letter-spacing:.05em}
+.panel-head .note{font-size:13px;color:var(--muted)}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+input[type=text],input[type=search],textarea,select{font:inherit;font-size:14px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 10px;min-width:0}
+textarea{width:100%;font-family:var(--mono);font-size:13px;resize:vertical}
+label.fld{display:flex;flex-direction:column;gap:4px;font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+
+/* check-in */
+.tiergroup{margin-bottom:18px}
+.tierhead{display:flex;align-items:center;gap:9px;margin-bottom:8px}
+.tierhead h3{font-size:13px;letter-spacing:.09em;text-transform:uppercase}
+.tierhead .count{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(188px,1fr));gap:8px}
+.chip{display:flex;align-items:center;gap:9px;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:8px 10px;cursor:pointer;min-width:0}
+.chip:hover{border-color:var(--accent)}
+.chip .nm{font-weight:500;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip .dk{font-family:var(--mono);font-size:11px;color:var(--muted);text-transform:lowercase}
+.chip .strike{margin-left:auto;flex:0 0 auto}
+.chip .txt{min-width:0}
+.chip .box{width:16px;height:16px;border-radius:4px;border:1.5px solid var(--line);flex:0 0 auto;position:relative}
+.chip[aria-pressed="true"]{background:var(--good-soft);border-color:color-mix(in srgb,var(--good) 45%,transparent)}
+.chip[aria-pressed="true"] .box{background:var(--good);border-color:var(--good)}
+.chip[aria-pressed="true"] .box::after{content:"";position:absolute;left:4.5px;top:1px;width:4px;height:9px;border:solid var(--surface);border-width:0 2px 2px 0;transform:rotate(42deg)}
+.chip .txt{min-width:0;display:flex;flex-direction:column;line-height:1.25}
+
+/* pairings */
+.alerts{display:flex;flex-direction:column;gap:7px;margin-bottom:14px}
+.alert{display:flex;gap:9px;align-items:flex-start;padding:9px 12px;border-radius:9px;font-size:13.5px;border:1px solid}
+.alert.ok{background:var(--good-soft);border-color:color-mix(in srgb,var(--good) 35%,transparent)}
+.alert.warn{background:var(--warn-soft);border-color:color-mix(in srgb,var(--warn) 35%,transparent)}
+.alert.bad{background:var(--bad-soft);border-color:color-mix(in srgb,var(--bad) 35%,transparent)}
+.alert b{font-family:var(--display)}
+
+.matches{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
+.match{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;display:flex;flex-direction:column}
+.match .mh{display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--surface-2);border-bottom:1px solid var(--line)}
+.match .tnum{font-family:var(--display);font-size:15px;font-weight:700;line-height:1;min-width:26px;height:26px;padding:0 6px;display:grid;place-items:center;border-radius:7px;background:var(--accent);color:var(--surface);font-variant-numeric:tabular-nums}
+.match .tbl{font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.dim{opacity:.26}
+.findhit{outline:2px solid var(--accent);outline-offset:2px}
+.flags{display:flex;gap:5px;margin-left:auto;flex-wrap:wrap}
+.flag{font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;padding:2px 6px;border-radius:999px;border:1px solid}
+.flag.mirror{color:var(--warn);background:var(--warn-soft);border-color:color-mix(in srgb,var(--warn) 35%,transparent)}
+.flag.gap{color:var(--accent);background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 35%,transparent)}
+.flag.judge{color:var(--t4);background:color-mix(in srgb,var(--t4) 14%,transparent);border-color:color-mix(in srgb,var(--t4) 40%,transparent)}
+.flag.rem{color:var(--bad);background:var(--bad-soft);border-color:color-mix(in srgb,var(--bad) 35%,transparent)}
+.side{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;background:none;border:0;border-bottom:1px solid var(--line);width:100%;text-align:left}
+.side:last-of-type{border-bottom:0}
+.side:hover{background:var(--surface-2)}
+.side.win{background:var(--good-soft)}
+.side.win:hover{background:var(--good-soft)}
+.side .who{min-width:0;flex:1 1 auto;display:flex;flex-direction:column;line-height:1.25}
+.side .who .nm{font-weight:600;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.side .who .meta{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.side .rec{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums;color:var(--muted)}
+.side .mark{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--line);flex:0 0 auto;display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--surface)}
+.side.win .mark{background:var(--good);border-color:var(--good)}
+.side.win .mark::after{content:"W"}
+.games{display:flex;flex-direction:column;gap:5px;padding:9px 12px;border-top:1px solid var(--line)}
+.grow{display:flex;align-items:center;gap:6px}
+.grow.gskip{opacity:.45}
+.glbl{font-family:var(--mono);font-size:10px;letter-spacing:.09em;color:var(--muted);width:19px;flex:0 0 auto}
+.gbtn{flex:1 1 0;min-width:0;border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:5px 8px;cursor:pointer;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:background .12s,border-color .12s}
+.gbtn:hover{border-color:var(--accent)}
+.gbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.gbtn.on{background:var(--good);border-color:var(--good);color:var(--surface);font-weight:600}
+.mfoot{display:flex;gap:8px;align-items:center;padding:8px 12px;border-top:1px solid var(--line);background:var(--surface-2)}
+.verdict{flex:1 1 auto;min-width:0;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.verdict.done{color:var(--ink);font-weight:600}
+.up{color:var(--good);font-family:var(--mono);font-size:11.5px;font-weight:600}
+.down{color:var(--bad);font-family:var(--mono);font-size:11.5px;font-weight:600}
+td.up,td.down{font-size:14px}
+.prov{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.mdelta{font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums;flex:0 0 auto}
+.spk{display:block;overflow:visible}
+.formula{font-family:var(--mono);font-size:12px;background:var(--sunk);padding:1px 5px;border-radius:4px;white-space:nowrap}
+.byhand{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--warn)}
+.force{padding:12px;margin-bottom:14px}
+.force-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.force-row label.fld{flex:1 1 180px;min-width:0}
+.force-row select{width:100%}
+.vs{font-family:var(--display);font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding-bottom:8px}
+.force-note{margin:9px 0 0;font-size:12.5px;color:var(--muted)}
+a{color:var(--accent)}
+.lockbtn{border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:4px 9px;cursor:pointer;font-size:12.5px;flex:0 0 auto}
+.lockbtn:hover{border-color:var(--accent)}
+.lockbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.lockbtn.on{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 45%,transparent);color:var(--accent);font-weight:600}
+.flag.locked{color:var(--accent);background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+.mmult{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+/* conduct: strikes, watchlist, tickets */
+.strike{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.07em;padding:1px 5px;border-radius:999px;border:1px solid;white-space:nowrap}
+.strike.s1{color:var(--warn);background:var(--warn-soft);border-color:color-mix(in srgb,var(--warn) 38%,transparent)}
+.strike.s2{color:var(--bad);background:var(--bad-soft);border-color:color-mix(in srgb,var(--bad) 38%,transparent)}
+.strike.s3{color:var(--surface);background:var(--bad);border-color:var(--bad)}
+.watch{display:grid;grid-template-columns:repeat(auto-fill,minmax(236px,1fr));gap:10px;margin-bottom:18px}
+.wcard{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:var(--r);padding:11px 13px}
+.wcard.review{border-left-color:var(--bad);background:color-mix(in srgb,var(--bad) 7%,var(--surface))}
+.wcard .wn{font-weight:600;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.wcard .wm{font-size:12.5px;color:var(--muted);margin-top:3px}
+.pips{display:inline-flex;gap:3px;vertical-align:middle}
+.pip{width:9px;height:9px;border-radius:2px;border:1px solid color-mix(in srgb,var(--bad) 45%,transparent)}
+.pip.on{background:var(--bad);border-color:var(--bad)}
+.tick{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);margin-bottom:8px;overflow:hidden}
+.tick-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;padding:10px 13px;background:none;border:0;cursor:pointer;text-align:left}
+.tick-h:hover{background:var(--surface-2)}
+.tick-h .tid{font-family:var(--mono);font-size:11.5px;color:var(--muted);flex:0 0 auto}
+.tick-h .tsub{font-weight:600}
+.tick-h .tkind{font-size:12.5px;color:var(--muted)}
+.tick-h .tgap{flex:1 1 auto}
+.st{font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;padding:2px 7px;border-radius:999px;border:1px solid}
+.st.open{color:var(--accent);background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 35%,transparent)}
+.st.upheld{color:var(--bad);background:var(--bad-soft);border-color:color-mix(in srgb,var(--bad) 35%,transparent)}
+.st.warning{color:var(--warn);background:var(--warn-soft);border-color:color-mix(in srgb,var(--warn) 35%,transparent)}
+.st.dismissed{color:var(--muted);background:var(--surface-2);border-color:var(--line)}
+.tick-b{padding:0 13px 12px;border-top:1px solid var(--line)}
+.tick-b .meta{font-family:var(--mono);font-size:11.5px;color:var(--muted);margin:10px 0 8px;display:flex;gap:14px;flex-wrap:wrap}
+.tick-b .body{white-space:pre-wrap;font-size:14px;margin:0 0 10px}
+.tick-b .resn{font-size:13px;color:var(--muted);border-left:2px solid var(--line);padding-left:9px;margin:0 0 10px}
+.tick-acts{display:flex;gap:7px;flex-wrap:wrap}
+.filt{display:flex;gap:6px;flex-wrap:wrap}
+.filt .btn.sm[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.tierpill{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.05em;padding:1px 6px;border-radius:4px;border:1px solid currentColor;flex:0 0 auto}
+.byecard{background:var(--surface);border:1px dashed var(--line);border-radius:var(--r);padding:12px;display:flex;align-items:center;gap:10px}
+
+/* tables */
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--surface-2)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+td.name{white-space:normal;font-weight:500}
+.rank{font-family:var(--display);font-size:15px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+/* tier leaders */
+.catblock{margin-bottom:20px}
+.catblock .tierhead{margin-bottom:8px}
+.leaders{margin-bottom:18px}
+.lead-head{display:flex;align-items:baseline;gap:10px;margin-bottom:9px}
+.lead-head h3{font-size:14px;letter-spacing:.08em;text-transform:uppercase}
+.lead-head .count{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.leadgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.leadcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.leadcard .lc-h{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.leadcard .lc-h strong{font-family:var(--display);font-size:12.5px;letter-spacing:.06em;text-transform:uppercase}
+.leadrow{display:flex;align-items:center;gap:9px;padding:7px 12px;border-bottom:1px solid var(--line)}
+.leadrow:last-child{border-bottom:0}
+.leadrow .pos{font-family:var(--display);font-size:13px;color:var(--muted);width:14px;font-variant-numeric:tabular-nums}
+.leadrow .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
+.leadrow .dk{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.leadrow .wl{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums}
+.leadrow.top{background:var(--accent-soft)}
+.leadrow.top .nm{font-weight:600}
+.leadrow.top .pos{color:var(--accent)}
+.empty{border:1px dashed var(--line);border-radius:var(--r);padding:28px 20px;text-align:center;color:var(--muted);font-size:14px}
+.empty b{display:block;font-family:var(--display);font-size:16px;color:var(--ink);margin-bottom:5px;letter-spacing:.02em}
+.rules{font-size:13px;color:var(--muted);margin-top:16px;line-height:1.65}
+.rules b{color:var(--ink);font-family:var(--display);letter-spacing:.03em}
+.rules ol{margin:6px 0 0;padding-left:20px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(18px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-size:13.5px;z-index:60;box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:calc(100% - 32px)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@media (max-width:520px){
+  .matches{grid-template-columns:1fr}
+  .hstat{gap:12px}
+  .brand h1{font-size:17px}
+}
+</style>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<script id="rb-state" type="application/json">{"event":{"name":"Riftbound","date":""},"roster":[{"id":"nicholas-wong","name":"Nicholas Wong","deck":"kaisa","tier":0,"judge":false},{"id":"samuel-kuang","name":"Samuel Kuang","deck":"azir","tier":0,"judge":false},{"id":"jocelyn-miao","name":"Jocelyn Miao","deck":"ahri","tier":0,"judge":false},{"id":"jasper-huang","name":"Jasper Huang","deck":"jinx","tier":0,"judge":false},{"id":"jayleen-shang","name":"Jayleen Shang","deck":"vex","tier":0,"judge":false},{"id":"luis-arroyo","name":"Luis Arroyo","deck":"kaisa","tier":0,"judge":false},{"id":"vincent","name":"Vincent","deck":"shen","tier":0,"judge":false},{"id":"seth-stegman","name":"Seth Stegman","deck":"kaisa","tier":0,"judge":false},{"id":"alyssa-won","name":"Alyssa Won","deck":"ahri","tier":0,"judge":false},{"id":"andy-wang","name":"Andy Wang","deck":"shen","tier":0,"judge":false},{"id":"lawson-wang","name":"Lawson Wang","deck":"azir","tier":0,"judge":false},{"id":"max-qin","name":"Max Qin","deck":"zed","tier":0,"judge":false},{"id":"kha-nguyen","name":"Kha Nguyen","deck":"vex","tier":1,"judge":false},{"id":"jun-ting-chiang","name":"Jun-Ting Chiang","deck":"vex","tier":1,"judge":false},{"id":"sean-liu","name":"Sean Liu","deck":"vex","tier":1,"judge":false},{"id":"robbie","name":"Robbie","deck":"lillia","tier":1,"judge":false},{"id":"alice-chen","name":"Alice Chen","deck":"kaisa","tier":1,"judge":false},{"id":"alvin-ao","name":"Alvin Ao","deck":"viktor","tier":1,"judge":false},{"id":"ari","name":"Ari","deck":"","tier":2,"judge":false},{"id":"tabitha-feldman","name":"Tabitha Feldman","deck":"lillia","tier":1.5,"judge":false},{"id":"andrew-habata","name":"Andrew Habata","deck":"vex","tier":2,"judge":false},{"id":"cindy-zhang","name":"Cindy Zhang","deck":"irelia","tier":1.5,"judge":false},{"id":"yatheesh-unadi","name":"Yatheesh Unadi","deck":"kaisa","tier":2.5,"judge":false},{"id":"justin-lu","name":"Justin Lu","deck":"","tier":2,"judge":false},{"id":"john-chuong","name":"John Chuong","deck":"yi","tier":3,"judge":false},{"id":"william-kang","name":"William Kang","deck":"","tier":3,"judge":false},{"id":"thinh-kien","name":"Thinh Kien","deck":"","tier":3,"judge":false},{"id":"luke-dinh","name":"Luke Dinh","deck":"","tier":3,"judge":false},{"id":"terence-zhang","name":"Terence Zhang","deck":"","tier":3,"judge":false},{"id":"lucas","name":"Lucas","deck":"zed","tier":3,"nf":true,"judge":false},{"id":"judge","name":"Judge","deck":"","tier":4,"judge":true}],"present":[],"rounds":[],"volunteers":["lucas","luke-dinh"],"carry":{},"gsUrl":""}</script>
+
+<header class="top">
+  <div class="top-in">
+    <div class="brand">
+      <h1 id="ev-name">TNN Riftbound</h1>
+      <div class="sub" id="ev-sub"></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="hstat">
+      <div><b id="s-present">0</b><span>checked in</span></div>
+      <div><b id="s-round">&mdash;</b><span>round</span></div>
+      <div><b id="s-tables">0</b><span>tables</span></div>
+    </div>
+    <span class="dirty" id="dirty" hidden>Unsaved</span>
+    <button class="btn" id="btn-pull">Pull ratings</button>
+    <button class="btn primary" id="btn-push">Sync event to sheet</button>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="pairings" aria-selected="true">Pairings</button>
+    <button class="tab" role="tab" data-tab="checkin" aria-selected="false">Check-in</button>
+    <button class="tab" role="tab" data-tab="standings" aria-selected="false">Standings</button>
+    <button class="tab" role="tab" data-tab="mmr" aria-selected="false">MMR</button>
+    <button class="tab" role="tab" data-tab="conduct" aria-selected="false">Conduct<span id="tab-conduct-n" class="strike s2" style="margin-left:6px" hidden></span></button>
+    <button class="tab" role="tab" data-tab="roster" aria-selected="false">Roster</button>
+  </nav>
+</header>
+
+<div class="wrap">
+
+  <section class="panel" id="p-pairings">
+    <div class="panel-head">
+      <h2>Pairings</h2>
+      <span class="note" id="round-note"></span>
+      <div class="spacer"></div>
+      <select id="round-pick" aria-label="Round"></select>
+      <button class="btn" id="btn-reroll" hidden>Re-roll</button>
+      <button class="btn" id="btn-undo" hidden>Delete round</button>
+      <button class="btn" id="btn-new-event">New event</button>
+      <button class="btn primary" id="btn-gen">Generate round 1</button>
+    </div>
+    <div class="alerts" id="alerts"></div>
+    <div id="leaders-pair"></div>
+    <div class="card force" id="force-bar" hidden>
+      <div class="force-row">
+        <label class="fld" for="force-a">Side A
+          <select id="force-a"></select>
+        </label>
+        <span class="vs">vs</span>
+        <label class="fld" for="force-b">Side B
+          <select id="force-b"></select>
+        </label>
+        <button class="btn" id="btn-force">Add this table</button>
+      </div>
+      <p class="note force-note" id="force-note"></p>
+    </div>
+    <div class="toolbar" id="find-bar" hidden>
+      <input type="search" id="find" placeholder="Type your name to find your table" style="flex:1 1 260px">
+      <span class="note" id="find-note" style="font-size:13px;color:var(--muted)"></span>
+    </div>
+    <div id="pair-body"></div>
+    <div class="rules">
+      <b>Pairing rules applied, in order</b>
+      <ol>
+        <li>Swiss on effective strength, which is the skill level from the brackets sheet adjusted by today's record. One net win is worth half a point, so a 1&ndash;0 level 0 is even with a 0&ndash;1 level 1 and the two get paired.</li>
+        <li>Up to one point apart is normal once records diverge. Two or more apart is allowed only when the records cancel the gap, like a 1&ndash;0 level 0 against a 0&ndash;1 level 2. Three apart is never allowed, so level 0 never sees level 3.</li>
+        <li>Fewest mirror matchups. Two players on the same expected deck are only paired when nothing else works.</li>
+        <li>No rematches while a legal fresh opponent exists.</li>
+        <li>Odd attendance gives one bye, and it goes to an amateur with the lowest record, never twice to the same person. Never-played and noob players are not sat out while any amateur is available. A bye scores nothing, so the sit-out neither helps nor hurts. Where a category has to be crossed to balance the field, the volunteers listed on the Roster tab go first.</li>
+        <li>Check in &ldquo;Judge&rdquo; at level 4 instead of handing out a bye, and the judge gets sent at a level 3 first. Whoever is judging plays under that one placeholder name. Judges never take the bye themselves and stay out of the prizing standings.</li>
+        <li>Any of this can be overridden. Force a table with the two pickers above the board and it is locked, so a re-roll leaves it alone. Re-roll only reshuffles tables that are neither locked nor already reported, and settled tables keep their numbers.</li>
+        <li>Someone arriving late is checked in as normal and shows up as waiting for a table. Pairing them in adds tables without touching anything already on the floor; an odd one out is paired against whoever had the bye.</li>
+        <li>Matches are best of three. Record G1, G2 and G3 and the match result follows the games; pick a side directly to set it by hand. A 2&ndash;0 sweep moves MMR 1.25&times;, a 2&ndash;1 only 0.75&times;, so winning a game off the player who beats you softens the loss.</li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="panel" id="p-checkin" hidden>
+    <div class="panel-head">
+      <h2>Check-in</h2>
+      <span class="note" id="checkin-note"></span>
+      <div class="spacer"></div>
+      <button class="btn sm" id="btn-none">Clear all</button>
+      <button class="btn sm" id="btn-all">Mark all</button>
+    </div>
+    <div class="card" style="padding:14px;margin-bottom:18px">
+      <h3 style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Attendance paste</h3>
+      <p class="note" style="margin:0 0 10px;font-size:13px;color:var(--muted)">
+        This is the normal way to check people in. Select the name column on the attendance tab,
+        copy, paste here and set the floor. Timestamps, headers and &ldquo;Last, First&rdquo; order are all handled.
+        Paste the whole tab again whenever more people arrive.
+      </p>
+      <label class="fld" for="paste">Names from the attendance tab
+        <textarea id="paste" rows="5" placeholder="10/10/2026 18:04:21&#9;Samuel Kuang&#10;10/10/2026 18:05:02&#9;Chiang, Jun-Ting&#10;Jayleen Shang"></textarea>
+      </label>
+      <div class="toolbar" style="margin:10px 0 0">
+        <button class="btn primary" id="btn-paste">Set the floor to this list</button>
+        <button class="btn" id="btn-paste-add">Add these, keep the rest</button>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)">
+          <input type="checkbox" id="paste-new"> Add names I don&rsquo;t recognise as walk-ins
+        </label>
+      </div>
+      <p class="note" id="paste-note" style="margin:9px 0 0;font-size:12.5px;color:var(--muted)"></p>
+    </div>
+
+    <div class="toolbar">
+      <input type="search" id="search" placeholder="Filter the roster by name or deck" style="flex:1 1 220px">
+    </div>
+    <div id="checkin-body"></div>
+  </section>
+
+  <section class="panel" id="p-standings" hidden>
+    <div class="panel-head"><h2>Standings</h2><div class="spacer"></div></div>
+    <div class="panel-head" style="margin-top:-4px"><span class="note">Ranked within each category. Match win % counts matches, game win % counts individual games in the best of three. A bye scores nothing. The judge is a filler seat and never appears here.</span></div>
+    <div id="leaders-body"></div>
+    <div id="standings-body"></div>
+  </section>
+
+  <section class="panel" id="p-mmr" hidden>
+    <div class="panel-head">
+      <h2>MMR ladder</h2>
+      <span class="note" id="mmr-note"></span>
+    </div>
+    <div id="mmr-body"></div>
+
+    <div class="card" style="padding:14px;margin-top:18px">
+      <h3 style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Spreadsheet sync</h3>
+      <p class="note" style="margin:0 0 12px;font-size:13px;color:var(--muted)">
+        The board is the source of truth during the event; the
+        <a href="https://docs.google.com/spreadsheets/d/1dbezzcgyLVsv_yz_8CfBQmcrI_2_u9AjZ5hjyAaqIRo/edit" target="_blank" rel="noopener">Triton MMR sheet</a>
+        is the record between events. Copy the ratings out at the end of the night, paste them over
+        A1 in the sheet, and paste the sheet's two columns back in here before the first round.
+      </p>
+      <div class="toolbar" style="margin:0 0 12px">
+        <button class="btn primary" id="btn-copy-rating">Copy Player + Rating</button>
+        <button class="btn" id="btn-copy-mmr">Copy full ladder</button>
+        <button class="btn" id="btn-csv-mmr">Download CSV</button>
+        <span class="note" id="sync-note" style="font-size:12.5px;color:var(--muted)"></span>
+      </div>
+      <div class="toolbar" style="margin:0 0 12px;align-items:flex-end">
+        <label class="fld" for="gs-url" style="flex:1 1 320px">Apps Script web app URL (only needed to sync)
+          <input type="text" id="gs-url" placeholder="https://script.google.com/macros/s/.../exec">
+        </label>
+        <button class="btn" id="btn-ping">Test both</button>
+      </div>
+      <p class="note" id="upload-note" style="margin:0 0 14px;font-size:12.5px;color:var(--muted)"></p>
+
+      <label class="fld" for="carry-paste">Paste name and MMR from the sheet
+        <textarea id="carry-paste" rows="4" placeholder="Terence Zhang&#9;1074&#10;Samuel Kuang, 918&#10;One player per line. Tab or comma between the name and the number. A header row is ignored."></textarea>
+      </label>
+      <div class="toolbar" style="margin:10px 0 0">
+        <button class="btn" id="btn-carry">Use these as starting MMR</button>
+        <button class="btn ghost sm" id="btn-carry-clear">Clear carry-ins</button>
+        <span class="note" id="carry-note" style="font-size:12.5px;color:var(--muted)"></span>
+      </div>
+    </div>
+
+    <div class="rules">
+      <b>How the rating moves</b>
+      <ol>
+        <li>Ratings are <b>seeded by skill</b>: <span class="formula">900 + 50 &times; skill level</span>. Never played opens at 900, noob at 1000, amateur at 1050, and the half steps land in between. The ladder starts out reflecting what the room already knows, so a never-played player beating an amateur reads as the upset it is.</li>
+        <li>Each match, your expected score comes from the rating gap: <span class="formula">E = 1 / (1 + 10^((opponent &minus; you) / 400))</span>. A 100-point underdog is expected to win about 36% of the time, a 200-point underdog about 24%.</li>
+        <li>The change is <span class="formula">K &times; margin &times; (result &minus; E)</span>. Beating someone rated above you pays more than beating someone below, and the loser pays exactly what the winner earns, so the pool total stays flat.</li>
+        <li>K is deliberately conservative: <b>28</b> for a player's first three matches, then <b>20</b>. An even matchup moves 12 to 18 points, while a 200-point upset win on a sweep pays about <b>+27</b>. Nobody's rating lurches on one result.</li>
+        <li>Margin reads the best of three and cuts both ways. A <b>2&ndash;0 sweep</b> was decisive, so it pays <b>1.25&times;</b>. A <b>2&ndash;1</b> could have gone either way, so it counts <b>0.75&times;</b>: the winner gains less and the loser drops less. Taking a game off the person who beats you genuinely softens the loss. Both players always use the same multiplier, so the pool stays flat.</li>
+        <li>Everyone in a round moves off the ratings they started that round with, so results inside one round never cascade into each other.</li>
+        <li>A <b>carry-in</b> pasted from the spreadsheet replaces the skill seed for that player, so week two starts where week one finished. Anyone without a carry-in still opens on their skill seed, which is what a first-timer should get.</li>
+        <li><b>Seed</b> is where that player started, so <b>MMR</b> minus <b>Seed</b> is what they have earned tonight. The green and red figures beside MMR show exactly that.</li>
+        <li><b>Perf</b> is the standard chess performance rating, <span class="formula">average opponent + 400 &times; (W &minus; L) / N</span>: how strong you played tonight judged only by who you actually beat. It ignores your own rating, so it is the fairer read on a short event.</li>
+        <li><b>Conf</b> is the uncertainty band, in Glicko's spirit: wide on the first night, narrowing as matches accumulate. A rating marked <i>prov</i> has fewer than three matches behind it and should not be trusted yet.</li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="panel" id="p-conduct" hidden>
+    <div class="panel-head">
+      <h2>Conduct</h2>
+      <span class="note" id="conduct-note"></span>
+    </div>
+    <div class="panel-head" style="margin-top:-6px"><span class="note">Organizer only. Nothing here is written to the sheet or shown on the public standings. An upheld report is one flag; three flags puts a player up for review for a ban.</span></div>
+
+    <div id="watch-body"></div>
+
+    <div class="card" style="padding:14px;margin-bottom:18px">
+      <h3 style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px">File a report</h3>
+      <div class="toolbar" style="margin:0 0 8px">
+        <input type="text" id="rp-subject" list="rp-roster" placeholder="Player reported" style="flex:2 1 190px">
+        <datalist id="rp-roster"></datalist>
+        <input type="text" id="rp-by" placeholder="Reported by (optional)" style="flex:1 1 170px">
+        <input type="text" id="rp-round" placeholder="Round" style="flex:0 1 80px">
+        <input type="text" id="rp-table" placeholder="Table" style="flex:0 1 80px">
+      </div>
+      <div class="toolbar" style="margin:0 0 8px">
+        <select id="rp-kind" style="flex:1 1 220px">
+          <option value="Slow play">Slow play / stalling</option>
+          <option value="Marked or altered cards">Marked or altered cards</option>
+          <option value="Deck or sideboard problem">Deck or sideboard problem</option>
+          <option value="Drawing extra cards">Drawing extra cards</option>
+          <option value="Misrepresenting the board">Misrepresenting the board or game state</option>
+          <option value="Hidden information">Looking at hidden information</option>
+          <option value="Collusion or result fixing">Collusion or result fixing</option>
+          <option value="Unsporting conduct">Unsporting conduct</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <textarea id="rp-detail" rows="3" placeholder="What happened, in the reporter's words. Who saw it, what the game state was, what was said."></textarea>
+      <div class="toolbar" style="margin:10px 0 0">
+        <button class="btn primary" id="btn-file">File report</button>
+        <span class="note" id="rp-msg" style="font-size:13px;color:var(--muted)"></span>
+      </div>
+    </div>
+
+    <div class="panel-head" style="margin-bottom:8px">
+      <h3 style="font-size:13px;letter-spacing:.08em;text-transform:uppercase">Tickets</h3>
+      <div class="spacer"></div>
+      <button class="btn sm" id="btn-copy-tickets">Copy as TSV</button>
+    </div>
+    <div class="toolbar">
+      <input type="search" id="tk-find" placeholder="Look up by ticket, player, reporter or words in the report" style="flex:1 1 280px">
+      <div class="filt" id="tk-filt">
+        <button class="btn sm" data-stf="all" aria-pressed="true">All</button>
+        <button class="btn sm" data-stf="open" aria-pressed="false">Open</button>
+        <button class="btn sm" data-stf="upheld" aria-pressed="false">Upheld</button>
+        <button class="btn sm" data-stf="warning" aria-pressed="false">Warning</button>
+        <button class="btn sm" data-stf="dismissed" aria-pressed="false">Dismissed</button>
+      </div>
+    </div>
+    <div id="tick-body"></div>
+  </section>
+
+  <section class="panel" id="p-roster" hidden>
+    <div class="panel-head">
+      <h2>Roster</h2>
+      <span class="note" id="roster-note"></span>
+    </div>
+    <div id="roster-body"></div>
+    <div class="card" style="padding:14px;margin-top:18px">
+      <h3 style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px">Add a walk-in</h3>
+      <div class="toolbar" style="margin:0">
+        <input type="text" id="new-name" placeholder="Name" style="flex:2 1 160px">
+        <input type="text" id="new-deck" placeholder="Deck" style="flex:1 1 110px">
+        <select id="new-tier">
+          <option value="0">0 &middot; Never played, no TCG</option>
+          <option value="1">1 &middot; Never played, TCG experience</option>
+          <option value="1.5">1.5</option>
+          <option value="2">2 &middot; Noob</option>
+          <option value="2.5">2.5</option>
+          <option value="3">3 &middot; Amateur / Nexus Nights</option>
+          <option value="4">4 &middot; Judge</option>
+        </select>
+        <button class="btn" id="btn-add">Add and check in</button>
+      </div>
+    </div>
+    <div class="card" style="padding:14px;margin-top:14px">
+      <h3 style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">Cross-tier volunteers</h3>
+      <p class="note" style="margin:0 0 10px;font-size:13px;color:var(--muted)">When attendance is odd and somebody has to play one tier up or down, these players take that match first.</p>
+      <div id="vol-body"></div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+(function(){
+"use strict";
+var PAGE_SOURCE = document.body.innerHTML;
+
+var TIERS = [
+  {n:0,label:"Never played, no TCG",css:"--t0"},
+  {n:1,label:"Never played, TCG experience",css:"--t1"},
+  {n:2,label:"Noob",css:"--t2"},
+  {n:3,label:"Amateur / Nexus Nights",css:"--t3"},
+  {n:4,label:"Judge",css:"--t4"}
+];
+/* Skill is a number on a 0 to 4 scale and can sit on a half step (1.5, 2.5).
+   Level 4 is a judge, who only joins the pool when checked in to even out an odd field.
+   The band is only for grouping and labelling; pairing always uses the exact value. */
+function band(t){ return Math.max(0, Math.min(4, Math.round(Number(t) || 0))); }
+function isJudge(id){ var p = byId(id); return !!(p && p.judge); }
+function tierDef(t){ return TIERS[band(t)]; }
+
+/* What everyone sees. The numeric level is organizer-only and stays on the Roster tab;
+   players and spectators only ever see the category. */
+var CATS = [
+  {key:"np",    short:"NP",      name:"Never played", css:"--t1"},
+  {key:"noob",  short:"Noob",    name:"Noob",         css:"--t2"},
+  {key:"am",    short:"Amateur", name:"Amateur",      css:"--t3"},
+  {key:"judge", short:"Judge",   name:"Judge",        css:"--t4"}
+];
+function catIdx(t){ var b = band(t); return b <= 1 ? 0 : b === 2 ? 1 : b === 3 ? 2 : 3; }
+function catOf(t){ return CATS[catIdx(t)]; }
+function catOfId(id){ return catOf(tierOf(id)); }
+function isBeginner(id){ return catIdx(tierOf(id)) <= 1; } /* NP or Noob: never sit these out */
+function fmtSkill(t){ t = Number(t) || 0; return (t % 1) ? t.toFixed(1) : String(t); }
+function shortName(id){
+  var n = nameOf(id).trim().split(/[\s,]+/)[0] || nameOf(id);
+  return n.length > 9 ? n.slice(0,8) + "…" : n;
+}
+
+var LS_MAIN = "rb-tnn-state-v2";
+function seedState(){
+  try { return JSON.parse(document.getElementById("rb-state").textContent); }
+  catch(e){ return {event:{name:"Riftbound",date:""},roster:[],present:[],rounds:[],volunteers:[],carry:{}}; }
+}
+var state = (function(){
+  try{
+    var saved = localStorage.getItem(LS_MAIN);
+    if(saved){
+      var st = JSON.parse(saved);
+      if(st && st.roster && st.roster.length) return st;
+    }
+  }catch(e){}
+  return seedState();
+})();
+state.event = state.event || {name:"Riftbound", date:""};
+if(!state.event.date) state.event.date = todayISO();
+state.carry = state.carry || {};
+state.reports = state.reports || [];  /* conduct tickets, organizer-only */
+var published = state;
+var dirty = false;
+
+function saveDraft(){ persist(); }
+function touch(){ _mmrCache = {}; persist(); render(); }
+
+/* ---------- helpers ---------- */
+function byId(id){ for(var i=0;i<state.roster.length;i++){ if(state.roster[i].id===id) return state.roster[i]; } return null; }
+function nameOf(id){ var p=byId(id); return p?p.name:"(removed)"; }
+function tierOf(id){ var p=byId(id); return p?p.tier:0; }
+function deckOf(id){ var p=byId(id); return p&&p.deck?p.deck.trim().toLowerCase():""; }
+function present(){ return state.present.filter(function(id){ return !!byId(id); }); }
+function slug(s){ return s.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"") || ("p"+Date.now()); }
+function esc(s){ return String(s).replace(/[&<>"]/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
+function el(id){ return document.getElementById(id); }
+
+/* Best of three. m.g holds the game winners ["a","b",null]; m.w is the match result.
+   The match result follows the games once someone has taken two, unless a judge
+   has overridden it by hand (m.manual). */
+function games(m){ return (m && m.g) || [null,null,null]; }
+function gameTally(m){
+  var g = games(m), t = {a:0,b:0};
+  for(var i=0;i<3;i++){ if(g[i] === "a") t.a++; else if(g[i] === "b") t.b++; }
+  return t;
+}
+function fromGames(m){
+  var t = gameTally(m);
+  if(t.a >= 2) return "a";
+  if(t.b >= 2) return "b";
+  if(t.a === 1 && t.b === 1 && games(m)[2] === "d") return "d";
+  return null;
+}
+
+/* ---------- rating ----------
+   Elo, the way chess does it, seeded by skill level instead of a flat start.
+
+     seed      900 + 50 x skill level
+     expected  E = 1 / (1 + 10^((opponent - you) / 400))
+     change    d = K x margin x (result - E)
+
+   Seeding means a never-played player opens at 900 and an amateur at 1050, so
+   the ladder already reflects what the room knows on night one, and an NP
+   beating an amateur reads as the upset it actually is.
+
+   K is the step size, deliberately conservative: 28 while a player is still
+   provisional (first 3 matches) so new ratings find their level, then 20.
+   At those numbers a 200-point upset win on a sweep pays about +27, while an
+   even matchup moves only 12 to 18.
+
+   Margin reads the best of three and cuts both ways. A 2-0 sweep was decisive,
+   so it pays 1.25x. A 2-1 was close enough that either player could have taken
+   it, so it only counts 0.75x: the winner gains less AND the loser drops less.
+   Taking a game off the person who beats you genuinely softens the loss.
+   Both sides of a match always use the same multiplier, so the pool stays flat.
+
+   Everyone in a round moves off the ratings they started the round with, so
+   pairings inside one round can't cascade into each other. */
+var MMR_BASE = 900, MMR_PER_LEVEL = 50, K_PROV = 28, K_BASE = 20, PROV_N = 3,
+    SWEEP_MULT = 1.25, CLOSE_MULT = 0.75, RD_FLOOR = 55;
+
+/* Where a player's rating starts. A carry-in from the spreadsheet wins; otherwise
+   it is derived from their skill level on the brackets sheet. */
+function skillSeed(tier){ return MMR_BASE + MMR_PER_LEVEL * (Number(tier) || 0); }
+function carryOf(id){
+  var c = state.carry && state.carry[id];
+  return (typeof c === "number" && isFinite(c)) ? c : null;
+}
+function seedFor(id){
+  var c = carryOf(id);
+  return c === null ? skillSeed(tierOf(id)) : c;
+}
+
+function eloExpected(you, opp){ return 1 / (1 + Math.pow(10, (opp - you) / 400)); }
+function kFor(n){ return n < PROV_N ? K_PROV : K_BASE; }
+function marginMult(m){
+  var t = gameTally(m), diff = Math.abs(t.a - t.b), played = t.a + t.b;
+  if(diff >= 2) return SWEEP_MULT;                 /* 2-0, decisive */
+  if(diff === 1 && played >= 3) return CLOSE_MULT; /* 2-1, could have gone either way */
+  return 1;                                        /* a draw, or games not logged */
+}
+function marginLabel(m){
+  var mm = marginMult(m);
+  return mm === SWEEP_MULT ? "sweep \u00d7" + SWEEP_MULT
+    : mm === CLOSE_MULT ? "close \u00d7" + CLOSE_MULT
+    : "";
+}
+function r1(x){ return Math.round(x * 10) / 10; }
+
+var _mmrCache = {};
+function mmrTable(uptoIdx){
+  var limit = (uptoIdx === undefined) ? state.rounds.length : uptoIdx;
+  if(_mmrCache[limit]) return _mmrCache[limit];
+  var t = {};
+  state.roster.forEach(function(p){
+    var carried = carryOf(p.id);
+    var seed = carried === null ? skillSeed(p.tier) : carried;
+    t[p.id] = {seed:seed, carried:carried !== null, r:seed, peak:seed, low:seed,
+               n:0, w:0, l:0, d:0, oppSum:0, last:0, hist:[seed]};
+  });
+  for(var i=0;i<limit;i++){
+    var ups = [];
+    state.rounds[i].matches.forEach(function(m){
+      if(!m.w) return;
+      var A = t[m.a], B = t[m.b];
+      if(!A || !B) return;
+      var ea = eloExpected(A.r, B.r);
+      var sa = m.w === "a" ? 1 : m.w === "b" ? 0 : 0.5;
+      var mm = marginMult(m);
+      ups.push({id:m.a, d:kFor(A.n) * mm * (sa - ea),       opp:B.r, s:sa});
+      ups.push({id:m.b, d:kFor(B.n) * mm * ((1-sa) - (1-ea)), opp:A.r, s:1-sa});
+    });
+    ups.forEach(function(u){
+      var e = t[u.id];
+      e.r = r1(e.r + u.d);
+      e.last = r1(u.d);
+      e.peak = Math.max(e.peak, e.r);
+      e.low = Math.min(e.low, e.r);
+      e.n++; e.oppSum += u.opp;
+      if(u.s === 1) e.w++; else if(u.s === 0) e.l++; else e.d++;
+      e.hist.push(e.r);
+    });
+  }
+  var rec = records(limit);
+  Object.keys(t).forEach(function(id){
+    var e = t[id];
+    if(rec[id]){ e.gw = rec[id].gw; e.gl = rec[id].gl; }
+    e.avgOpp = e.n ? Math.round(e.oppSum / e.n) : null;
+    /* Tournament performance rating, the standard chess formula: how strong you
+       played this event, judged only by who you beat. */
+    e.perf = e.n ? Math.round(e.avgOpp + 400 * (e.w - e.l) / e.n) : null;
+    /* Confidence shrinks as the sample grows, Glicko's rating deviation in spirit. */
+    e.rd = Math.max(RD_FLOOR, Math.round(350 / Math.sqrt(1 + e.n)));
+    e.delta = r1(e.r - e.seed);
+    e.prov = e.n < PROV_N;
+  });
+  _mmrCache[limit] = t;
+  return t;
+}
+
+/* What one match did, or would do, to both ratings. */
+function matchMmr(roundIdx, m){
+  var pre = mmrTable(roundIdx);
+  var A = pre[m.a], B = pre[m.b];
+  if(!A || !B) return null;
+  var ea = eloExpected(A.r, B.r);
+  var mm = marginMult(m);
+  var out = {ra:A.r, rb:B.r, ea:ea, eb:1-ea, da:null, db:null};
+  if(m.w){
+    var sa = m.w === "a" ? 1 : m.w === "b" ? 0 : 0.5;
+    out.da = r1(kFor(A.n) * mm * (sa - ea));
+    out.db = r1(kFor(B.n) * mm * ((1-sa) - (1-ea)));
+  }
+  return out;
+}
+function fmtDelta(d){ return d === null ? "" : (d > 0 ? "+" : "") + r1(d); }
+
+function records(uptoIdx){
+  var r = {};
+  present().forEach(function(id){ r[id] = {w:0,l:0,d:0,gw:0,gl:0,byes:0,opps:[]}; });
+  var limit = (uptoIdx===undefined) ? state.rounds.length : uptoIdx;
+  for(var i=0;i<limit;i++){
+    var rd = state.rounds[i];
+    if(rd.bye && r[rd.bye]){ r[rd.bye].byes++; }
+    rd.matches.forEach(function(m){
+      if(r[m.a]) r[m.a].opps.push(m.b);
+      if(r[m.b]) r[m.b].opps.push(m.a);
+      var t = gameTally(m);
+      if(r[m.a]){ r[m.a].gw += t.a; r[m.a].gl += t.b; }
+      if(r[m.b]){ r[m.b].gw += t.b; r[m.b].gl += t.a; }
+      if(m.w==="a"){ if(r[m.a]) r[m.a].w++; if(r[m.b]) r[m.b].l++; }
+      else if(m.w==="b"){ if(r[m.b]) r[m.b].w++; if(r[m.a]) r[m.a].l++; }
+      else if(m.w==="d"){ if(r[m.a]) r[m.a].d++; if(r[m.b]) r[m.b].d++; }
+    });
+  }
+  return r;
+}
+
+/* ---------- pairing engine ---------- */
+var P_MIRROR = 1200, P_EFF = 240, P_RAW1 = 40, P_STRETCH = 110, P_RAW2 = 800,
+    P_REMATCH = 1e6, P_BLOCK2 = 1e7, P_BLOCK3 = 1e9, VOL_RELIEF = 30, JUDGE_PREF = 900, P_MMR = 12;
+
+/* Effective strength: skill tier, adjusted by how the player is actually doing today.
+   One net win is worth half a tier, so a 1-0 tier 0 sits level with a 0-1 tier 1. */
+function effOf(rec, id){
+  var r = rec[id];
+  return tierOf(id) + 0.5 * (r ? (r.w - r.l) : 0);
+}
+
+/* A two-tier gap is only allowed when today's results have already closed it:
+   the lower-tier player is ahead of the higher-tier player by two games or more. */
+function bridges(rec, a, b){
+  var lo = tierOf(a) <= tierOf(b) ? a : b, hi = (lo === a) ? b : a;
+  var nl = rec[lo] ? rec[lo].w - rec[lo].l : 0;
+  var nh = rec[hi] ? rec[hi].w - rec[hi].l : 0;
+  return (nl - nh) >= 2;
+}
+
+function makeCost(rec, vols){
+  return function(a,b){
+    var c = 0;
+    var rawD = Math.abs(tierOf(a) - tierOf(b));
+    var effD = Math.abs(effOf(rec,a) - effOf(rec,b));
+    c += Math.pow(effD, 2) * P_EFF;
+
+    /* A judge is here on purpose to absorb an odd number, so the level gap is not a
+       violation for them. They are steered at the strongest player available instead:
+       a level 3 is the intended opponent, each level below that costs more. */
+    var ja = isJudge(a), jb = isJudge(b);
+    if(ja !== jb){
+      var opp = ja ? b : a;
+      return c + JUDGE_PREF * Math.max(0, 3 - Number(tierOf(opp) || 0));
+    }
+    if(ja && jb) return c + P_BLOCK2; /* two judges facing each other helps nobody */
+
+    if(rawD >= 3){
+      c += P_BLOCK3;
+    } else if(rawD >= 2){
+      c += bridges(rec, a, b) ? P_RAW2 : P_BLOCK2;
+    } else if(rawD > 0){
+      c += P_RAW1 * rawD + (rawD > 1 ? P_STRETCH : 0);
+      var nv = (vols.indexOf(a)>=0?1:0) + (vols.indexOf(b)>=0?1:0);
+      c -= nv * VOL_RELIEF * rawD;
+    }
+    /* Among options the rules allow equally, prefer the closer rating. Small
+       weight on purpose: this refines a choice, it never overrides category rules. */
+    var mt = mmrTable();
+    if(mt[a] && mt[b]) c += Math.pow(Math.abs(mt[a].r - mt[b].r) / 100, 2) * P_MMR;
+
+    var da = deckOf(a), db = deckOf(b);
+    if(da && db && da === db) c += P_MIRROR;
+    var ra = rec[a];
+    if(ra && ra.opps.indexOf(b) >= 0) c += P_REMATCH;
+    return c;
+  };
+}
+
+function shuffle(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
+
+function matchPool(pool, cost){
+  if(pool.length < 2) return [];
+  var best = null, bestCost = Infinity;
+  var restarts = pool.length > 20 ? 400 : 700;
+  for(var t=0;t<restarts;t++){
+    var order = shuffle(pool.slice());
+    var used = {}, pairs = [];
+    for(var i=0;i<order.length;i++){
+      var a = order[i];
+      if(used[a]) continue;
+      used[a] = 1;
+      var bb = null, bc = Infinity;
+      for(var j=0;j<order.length;j++){
+        var b = order[j];
+        if(used[b]) continue;
+        var c = cost(a,b) + Math.random()*10;
+        if(c < bc){ bc = c; bb = b; }
+      }
+      if(bb){ used[bb] = 1; pairs.push([a,bb]); }
+    }
+    var improved = true, guard = 0;
+    while(improved && guard++ < 60){
+      improved = false;
+      for(var x=0;x<pairs.length;x++){
+        for(var y=x+1;y<pairs.length;y++){
+          var a1=pairs[x][0], b1=pairs[x][1], a2=pairs[y][0], b2=pairs[y][1];
+          var cur = cost(a1,b1)+cost(a2,b2);
+          var o1 = cost(a1,a2)+cost(b1,b2);
+          var o2 = cost(a1,b2)+cost(b1,a2);
+          if(o1 < cur - 1e-9){ pairs[x]=[a1,a2]; pairs[y]=[b1,b2]; improved = true; }
+          else if(o2 < cur - 1e-9){ pairs[x]=[a1,b2]; pairs[y]=[b1,a2]; improved = true; }
+        }
+      }
+    }
+    var total = 0;
+    for(var k=0;k<pairs.length;k++) total += cost(pairs[k][0],pairs[k][1]);
+    if(total < bestCost){ bestCost = total; best = pairs; }
+  }
+  return best || [];
+}
+
+/* Who is checked in but has no table in this round. This is how a late arrival
+   shows up: they are in the pool but not on the board yet. */
+function unpairedIn(roundIdx){
+  var rd = state.rounds[roundIdx];
+  if(!rd) return [];
+  var used = {};
+  rd.matches.forEach(function(m){ used[m.a] = 1; used[m.b] = 1; });
+  if(rd.bye) used[rd.bye] = 1;
+  return present().filter(function(id){ return !used[id]; });
+}
+/* A table is settled once it is locked by hand or its result is in. Settled
+   tables survive a re-roll untouched, keeping their table number. */
+function settled(m){ return !!(m.lock || m.w); }
+
+function pairOrder(rec){
+  return function(p, q){
+    var tp = Math.max(tierOf(p[0]),tierOf(p[1])), tq = Math.max(tierOf(q[0]),tierOf(q[1]));
+    if(tp !== tq) return tq - tp;
+    var sp = (rec[p[0]]?rec[p[0]].w:0) + (rec[p[1]]?rec[p[1]].w:0);
+    var sq = (rec[q[0]]?rec[q[0]].w:0) + (rec[q[1]]?rec[q[1]].w:0);
+    return sq - sp;
+  };
+}
+function asMatch(p){
+  if(tierOf(p[0]) < tierOf(p[1])) { var t = p[0]; p[0] = p[1]; p[1] = t; }
+  return {a:p[0], b:p[1], w:null, g:[null,null,null], manual:false, lock:false};
+}
+
+/* Pair a specific set of players, used for late arrivals so the board already
+   on the floor is never disturbed. */
+function pairSubset(ids, upto){
+  var rec = records(upto);
+  var vols = (state.volunteers||[]).filter(function(v){ return ids.indexOf(v) >= 0; });
+  var pairs = matchPool(ids.slice(), makeCost(rec, vols));
+  pairs.sort(pairOrder(rec));
+  return pairs.map(asMatch);
+}
+
+/* Re-roll the unsettled part of the current round. Locked tables and tables
+   with a result stay exactly where they are, table number included. */
+function rerollRound(){
+  var rd = state.rounds[state.rounds.length - 1];
+  if(!rd) return false;
+  var upto = state.rounds.length - 1;
+  var rec = records(upto);
+  var taken = {};
+  rd.matches.forEach(function(m){ if(settled(m)){ taken[m.a] = 1; taken[m.b] = 1; } });
+  var pool = present().filter(function(id){ return !taken[id]; });
+  var bye = null;
+  if(pool.length % 2 === 1){
+    bye = pickBye(pool, rec, upto);
+    pool = pool.filter(function(id){ return id !== bye; });
+  }
+  var vols = (state.volunteers||[]).filter(function(v){ return pool.indexOf(v) >= 0; });
+  var pairs = matchPool(pool, makeCost(rec, vols));
+  pairs.sort(pairOrder(rec));
+  var fresh = pairs.map(asMatch);
+  /* Drop the new tables into the slots the unsettled ones occupied, so the
+     numbers players are already sitting at do not move. */
+  var out = [], fi = 0;
+  rd.matches.forEach(function(m){
+    if(settled(m)) out.push(m);
+    else if(fi < fresh.length) out.push(fresh[fi++]);
+  });
+  while(fi < fresh.length) out.push(fresh[fi++]);
+  rd.matches = out;
+  rd.bye = bye;
+  return true;
+}
+
+function pickBye(pool, rec, upto){
+  var hadBye = {};
+  for(var i=0;i<upto;i++){ if(state.rounds[i].bye) hadBye[state.rounds[i].bye] = 1; }
+  /* A judge is in the pool to absorb an odd number, so never hand them the bye. */
+  var cands = pool.filter(function(id){ return !hadBye[id] && !isJudge(id); });
+  if(!cands.length) cands = pool.filter(function(id){ return !isJudge(id); });
+  if(!cands.length) cands = pool.slice();
+  /* Never played and noob players came here to play, so the bye goes to an
+     amateur first. A beginner only sits out when there is nobody else left. */
+  var seasoned = cands.filter(function(id){ return !isBeginner(id); });
+  if(seasoned.length) cands = seasoned;
+  var score = function(id){ return rec[id] ? rec[id].w + 0.5*rec[id].d : 0; };
+  var lo = Math.min.apply(null, cands.map(score));
+  cands = cands.filter(function(id){ return score(id) === lo; });
+  return cands[Math.floor(Math.random()*cands.length)];
+}
+
+/* Close the night out: every player's finishing rating becomes their carry-in, so
+   the next event starts from what they earned rather than from their skill seed. */
+function bankRatings(){
+  var t = mmrTable();
+  state.carry = state.carry || {};
+  var n = 0;
+  present().forEach(function(id){
+    if(isJudge(id)) return;
+    var e = t[id];
+    if(e && e.n){ state.carry[id] = r1(e.r); n++; }
+  });
+  return n;
+}
+
+function startNewEvent(){
+  var banked = bankRatings();
+  state.rounds = [];
+  state.present = [];
+  state.event.date = todayISO();
+  return banked;
+}
+
+function generateRound(replaceLast){
+  var ids = present();
+  if(ids.length < 2) return null;
+  var upto = replaceLast ? state.rounds.length - 1 : state.rounds.length;
+  var rec = records(upto);
+  var vols = (state.volunteers||[]).filter(function(v){ return ids.indexOf(v) >= 0; });
+
+  var pool = ids.slice(), bye = null;
+  if(pool.length % 2 === 1){
+    bye = pickBye(pool, rec, upto);
+    pool = pool.filter(function(id){ return id !== bye; });
+  }
+  var pairs = matchPool(pool, makeCost(rec, vols));
+  pairs.sort(pairOrder(rec));
+  return {n: upto + 1, bye: bye, matches: pairs.map(asMatch)};
+}
+
+function flagsFor(m, roundIdx){
+  var rec = records(roundIdx);
+  var rawD = Math.abs(tierOf(m.a) - tierOf(m.b));
+  var effD = Math.abs(effOf(rec,m.a) - effOf(rec,m.b));
+  var da = deckOf(m.a), db = deckOf(m.b);
+  var judged = isJudge(m.a) !== isJudge(m.b);
+  return {
+    mirror: !!(da && db && da === db),
+    gap: rawD,
+    effD: effD,
+    judge: judged,
+    judgeOpp: judged ? (isJudge(m.a) ? m.b : m.a) : null,
+    bridged: !judged && rawD >= 2 && rawD < 3 && bridges(rec, m.a, m.b),
+    illegal: !judged && (rawD >= 3 || (rawD >= 2 && !bridges(rec, m.a, m.b))),
+    rematch: !!(rec[m.a] && rec[m.a].opps.indexOf(m.b) >= 0)
+  };
+}
+
+/* ---------- rendering ---------- */
+var activeTab = "pairings";
+var tkFilter = "all", tkOpen = {};
+var viewRound = -1;
+
+function todayISO(){
+  var d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+}
+function prettyDate(iso){
+  var parts = String(iso || "").split("-");
+  if(parts.length !== 3) return iso || "";
+  var d = new Date(+parts[0], +parts[1]-1, +parts[2]);
+  if(isNaN(d)) return iso;
+  return d.toLocaleDateString(undefined, {weekday:"long", month:"numeric", day:"numeric"});
+}
+
+function render(){
+  el("ev-name").textContent = state.event.name || "Riftbound";
+  el("ev-sub").textContent = prettyDate(state.event.date) + " \u00b7 swiss";
+  el("s-present").textContent = present().length;
+  var last = state.rounds.length;
+  el("s-round").textContent = last ? String(last) : "—";
+  el("s-tables").textContent = last ? state.rounds[last-1].matches.length : 0;
+  var ls = state.lastSync ? new Date(state.lastSync) : null;
+  el("dirty").hidden = false;
+  el("dirty").textContent = ls ? "Synced " + ls.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"}) : "Not synced";
+  renderPairings();
+  renderCheckin();
+  renderStandings();
+  renderMmr();
+  refreshUpload();
+  renderConduct();
+  renderRoster();
+}
+
+function tierPill(t){
+  var C = catOf(t);
+  return '<span class="tierpill" style="color:var(' + C.css + ')">' + esc(C.short) + '</span>';
+}
+
+function renderPairings(){
+  var body = el("pair-body"), alerts = el("alerts"), pick = el("round-pick");
+  var n = state.rounds.length;
+  el("leaders-pair").innerHTML = leadersHTML();
+  el("btn-gen").textContent = "Generate round " + (n + 1);
+  el("btn-gen").disabled = present().length < 2;
+
+  if(viewRound < 0 || viewRound >= n) viewRound = n - 1;
+  pick.innerHTML = "";
+  for(var i=0;i<n;i++){
+    var o = document.createElement("option");
+    o.value = String(i); o.textContent = "Round " + (i+1);
+    if(i === viewRound) o.selected = true;
+    pick.appendChild(o);
+  }
+  pick.hidden = n < 2;
+  el("btn-reroll").hidden = !(n && viewRound === n-1);
+  el("btn-reroll").textContent = "Re-roll open tables";
+  el("btn-undo").hidden = !(n && viewRound === n-1);
+
+  if(!n){
+    alerts.innerHTML = "";
+    el("round-note").textContent = "";
+    el("find-bar").hidden = true;
+    body.innerHTML = '<div class="empty"><b>No rounds yet</b>' +
+      (present().length < 2
+        ? 'Check players in first, then generate round 1.'
+        : present().length + ' players checked in. Generate round 1 when the floor is ready.') +
+      '</div>';
+    return;
+  }
+
+  var rd = state.rounds[viewRound];
+  var mirrors = 0, gaps = 0, rematches = 0, illegal = 0, bridged = 0, judged = 0, reported = 0;
+  var html = '<div class="matches">';
+  rd.matches.forEach(function(m, idx){
+    var f = flagsFor(m, viewRound);
+    if(f.mirror) mirrors++;
+    if(f.judge) judged++;
+    else if(f.gap > 0 && f.gap < 2) gaps++;
+    if(f.bridged) bridged++;
+    if(f.illegal) illegal++;
+    if(f.rematch) rematches++;
+    if(m.w) reported++;
+    var rec = records(viewRound);
+    var fl = "";
+    if(m.lock) fl += '<span class="flag locked">locked</span>';
+    if(f.mirror) fl += '<span class="flag mirror">mirror ' + esc(deckOf(m.a)) + '</span>';
+    if(f.judge) fl += '<span class="flag judge">judge vs ' + esc(catOfId(f.judgeOpp).name.toLowerCase()) + '</span>';
+    else if(f.gap > 0 && f.gap < 2) fl += '<span class="flag gap">uneven</span>';
+    if(f.bridged) fl += '<span class="flag gap">stretch, record-matched</span>';
+    if(f.illegal) fl += '<span class="flag rem">too far apart</span>';
+    if(f.rematch) fl += '<span class="flag rem">rematch</span>';
+    var names = ((byId(m.a) ? byId(m.a).name : "") + " | " + (byId(m.b) ? byId(m.b).name : "")).toLowerCase();
+    html += '<div class="match" data-names="' + esc(names) + '" data-label="Table ' + (idx+1) + '">' +
+      '<div class="mh"><span class="tnum">' + (idx+1) + '</span><span class="tbl">Table</span>' +
+      '<div class="flags">' + fl + '</div></div>';
+    [["a",m.a],["b",m.b]].forEach(function(pair){
+      var side = pair[0], id = pair[1];
+      var r = rec[id] || {w:0,l:0,d:0};
+      var p = byId(id);
+      var mi = matchMmr(viewRound, m);
+      var mr = mi ? (side === "a" ? mi.ra : mi.rb) : null;
+      var mp = mi ? (side === "a" ? mi.ea : mi.eb) : null;
+      var md = mi ? (side === "a" ? mi.da : mi.db) : null;
+      html += '<button class="side' + (m.w === side ? " win" : "") + '" data-win="' + viewRound + ':' + idx + ':' + side + '">' +
+        tierPill(tierOf(id)) +
+        '<span class="who"><span class="nm">' + esc(p ? p.name : id) + '</span>' +
+        '<span class="meta">' + esc(p && p.deck ? p.deck : "deck tbd") +
+          (mr !== null ? ' \u00b7 ' + Math.round(mr) + (mp !== null && !m.w ? ' \u00b7 ' + Math.round(mp*100) + '%' : '') : '') +
+          '</span></span>' +
+        (md !== null ? '<span class="mdelta ' + (md > 0 ? "up" : md < 0 ? "down" : "") + '">' + fmtDelta(md) + '</span>' : '') +
+        '<span class="rec">' + r.w + '&ndash;' + r.l + '</span>' +
+        '<span class="mark"></span></button>';
+    });
+    var sa = shortName(m.a), sb = shortName(m.b), tal = gameTally(m);
+    var gh = '<div class="games">';
+    for(var gi=0; gi<3; gi++){
+      var gw = games(m)[gi];
+      var optional = gi === 2 && (tal.a >= 2 || tal.b >= 2);
+      gh += '<div class="grow' + (optional ? " gskip" : "") + '"><span class="glbl">G' + (gi+1) + '</span>' +
+        '<button class="gbtn' + (gw === "a" ? " on" : "") + '" data-g="' + viewRound + ':' + idx + ':' + gi + ':a">' + esc(sa) + '</button>' +
+        '<button class="gbtn' + (gw === "b" ? " on" : "") + '" data-g="' + viewRound + ':' + idx + ':' + gi + ':b">' + esc(sb) + '</button>' +
+        '</div>';
+    }
+    gh += '</div>';
+    var verdict = m.w === "a" ? esc(sa) + " wins " + tal.a + "–" + tal.b
+      : m.w === "b" ? esc(sb) + " wins " + tal.b + "–" + tal.a
+      : m.w === "d" ? "drawn"
+      : (tal.a || tal.b) ? "in progress " + tal.a + "–" + tal.b
+      : "no result yet";
+    var mlab = m.w ? marginLabel(m) : "";
+    html += gh + '<div class="mfoot">' +
+      '<span class="verdict' + (m.w ? " done" : "") + '">' + verdict +
+      (mlab ? ' <span class="mmult">' + mlab + '</span>' : '') +
+      (m.w && m.manual ? ' <span class="byhand">set by hand</span>' : '') + '</span>' +
+      '<button class="lockbtn' + (m.lock ? " on" : "") + '" data-lock="' + viewRound + ':' + idx + '" title="A locked table survives a re-roll">' + (m.lock ? "Locked" : "Lock") + '</button>' +
+      '<button class="btn sm" data-win="' + viewRound + ':' + idx + ':d">Draw</button>' +
+      '<button class="btn sm ghost" data-win="' + viewRound + ':' + idx + ':">Clear</button>' +
+      '</div></div>';
+  });
+  html += '</div>';
+  if(rd.bye){
+    html += '<div class="byecard" style="margin-top:12px" data-names="' + esc(nameOf(rd.bye).toLowerCase()) +
+      '" data-label="No table, you have the bye">' + tierPill(tierOf(rd.bye)) +
+      '<b style="font-family:var(--display)">' + esc(nameOf(rd.bye)) + '</b>' +
+      '<span class="note" style="color:var(--muted);font-size:13px">has the bye this round. No win, no loss, record unchanged.</span></div>';
+  }
+  body.innerHTML = html;
+
+  el("round-note").textContent = "Round " + (viewRound+1) + " of " + n + " · tables 1–" +
+    rd.matches.length + " · " + reported + " of " + rd.matches.length + " results in";
+  el("find-bar").hidden = false;
+  applyFind();
+  renderForce();
+
+  var a = [];
+  if(illegal) a.push(['bad','<b>' + illegal + ' pairing' + (illegal>1?'s':'') + ' outside the rules.</b> A tier jump got forced in without the records to justify it. Check someone in or add a walk-in to fix the split.']);
+  if(rematches) a.push(['warn','<b>' + rematches + ' rematch' + (rematches>1?'es':'') + '.</b> Every legal fresh opponent was used up.']);
+  if(mirrors) a.push(['warn','<b>' + mirrors + ' mirror matchup' + (mirrors>1?'s':'') + '.</b> Unavoidable with the decks checked in. Re-roll to try a different spread.']);
+  if(bridged) a.push(['ok','<b>' + bridged + ' two-tier match' + (bridged>1?'es':'') + '.</b> Allowed because the records cancel the gap: the lower tier is up, the higher tier is down.']);
+  if(judged) a.push(['ok','<b>' + judged + ' judge match' + (judged>1?'es':'') + '.</b> A judge is filling in so nobody sits out, sent at the strongest player available. Whoever judges plays as &ldquo;Judge&rdquo;, and those results stay out of the prizing standings.']);
+  if(gaps) a.push(['ok','<b>' + gaps + ' uneven match' + (gaps>1?'es':'') + '.</b> Under two skill points apart, volunteers first.']);
+  if(!a.length) a.push(['ok','<b>Clean round.</b> No mirrors, no rematches, every match at the same skill level.']);
+  if(viewRound === n-1){
+    var late = unpairedIn(viewRound);
+    if(late.length) a.unshift(['warn','<b>' + late.length + ' waiting for a table.</b> ' +
+      esc(late.map(nameOf).join(", ")) + ' checked in after this round was built. ' +
+      '<button class="btn sm" id="btn-pair-late" style="margin-left:6px">Pair them in</button>']);
+  }
+  alerts.innerHTML = a.map(function(x){ return '<div class="alert ' + x[0] + '">' + x[1] + '</div>'; }).join("");
+}
+
+/* ---------- forcing a table by hand ---------- */
+function renderForce(){
+  var n = state.rounds.length;
+  var bar = el("force-bar");
+  bar.hidden = !n || viewRound !== n - 1;
+  if(bar.hidden) return;
+  var free = {};
+  unpairedIn(viewRound).forEach(function(id){ free[id] = 1; });
+  var rd = state.rounds[viewRound];
+  ["force-a","force-b"].forEach(function(sel){
+    var e = el(sel), keep = e.value;
+    var opts = '<option value="">Pick a player</option>';
+    [0,1,2,3].forEach(function(ci){
+      var list = state.roster.filter(function(p){ return catIdx(p.tier) === ci; })
+        .sort(function(x,y){ return x.name.localeCompare(y.name); });
+      if(!list.length) return;
+      opts += '<optgroup label="' + esc(CATS[ci].name) + '">';
+      list.forEach(function(p){
+        var tag = free[p.id] ? " · waiting" : rd.bye === p.id ? " · bye"
+          : present().indexOf(p.id) < 0 ? " · not checked in" : "";
+        opts += '<option value="' + p.id + '">' + esc(p.name) + esc(tag) + '</option>';
+      });
+      opts += '</optgroup>';
+    });
+    e.innerHTML = opts;
+    e.value = keep;
+  });
+  var waiting = Object.keys(free).length;
+  el("force-note").textContent = waiting
+    ? waiting + " waiting for a table. Forcing a pair only touches the two players you pick; every other table stays as it is."
+    : "Forcing a pair only touches the two players you pick. If either is already seated, their old opponent moves to the waiting list.";
+}
+
+/* Seat two specific players together, disturbing nothing else on the board. */
+function forceTable(aId, bId){
+  if(!aId || !bId || aId === bId) return "Pick two different players.";
+  if(!state.rounds.length) return "Generate a round first.";
+  var rd = state.rounds[state.rounds.length - 1];
+  [aId, bId].forEach(function(id){
+    if(state.present.indexOf(id) < 0) state.present.push(id);
+  });
+  var orphans = [];
+  /* Pull both out of wherever they are sitting now. Their old opponents are not
+     re-paired automatically: they go to the waiting list so you stay in control. */
+  for(var i = rd.matches.length - 1; i >= 0; i--){
+    var m = rd.matches[i];
+    var hitA = (m.a === aId || m.b === aId), hitB = (m.a === bId || m.b === bId);
+    if(!hitA && !hitB) continue;
+    if(m.w) return nameOf(m.a) + " vs " + nameOf(m.b) + " already has a result. Clear that table first.";
+    if(m.a !== aId && m.a !== bId) orphans.push(m.a);
+    if(m.b !== aId && m.b !== bId) orphans.push(m.b);
+    rd.matches.splice(i, 1);
+  }
+  if(rd.bye === aId || rd.bye === bId) rd.bye = null;
+  rd.matches.push({a:aId, b:bId, w:null, g:[null,null,null], manual:false, lock:true});
+  return orphans.length
+    ? {ok:true, msg:nameOf(aId) + " vs " + nameOf(bId) + " locked in. " + orphans.map(nameOf).join(" and ") + " now waiting for a table."}
+    : {ok:true, msg:nameOf(aId) + " vs " + nameOf(bId) + " locked in at table " + rd.matches.length + "."};
+}
+
+function applyFind(){
+  var q = (el("find").value || "").trim().toLowerCase();
+  var cards = document.querySelectorAll("#pair-body .match, #pair-body .byecard");
+  var hit = null;
+  for(var i=0;i<cards.length;i++){
+    var c = cards[i];
+    var on = !q || (c.getAttribute("data-names") || "").indexOf(q) >= 0;
+    c.classList.toggle("dim", !on);
+    c.classList.toggle("findhit", !!q && on);
+    if(q && on && !hit) hit = c;
+  }
+  el("find-note").textContent = q
+    ? (hit ? hit.getAttribute("data-label") : "No player by that name in this round")
+    : "";
+}
+
+function renderCheckin(){
+  var q = (el("search").value || "").trim().toLowerCase();
+  var pres = {}; state.present.forEach(function(id){ pres[id] = 1; });
+  var html = "";
+  CATS.forEach(function(C, ci){
+    var list = state.roster.filter(function(p){
+      if(catIdx(p.tier) !== ci) return false;
+      if(!q) return true;
+      return (p.name + " " + (p.deck||"")).toLowerCase().indexOf(q) >= 0;
+    });
+    if(!list.length) return;
+    var inCat = list.filter(function(p){ return pres[p.id]; }).length;
+    html += '<div class="tiergroup"><div class="tierhead"><span class="dot" style="background:var(' + C.css + ')"></span>' +
+      '<h3>' + esc(C.name) + '</h3><span class="count">' + inCat + ' / ' + list.length + ' in</span></div><div class="chips">';
+    list.forEach(function(p){
+      html += '<button class="chip" aria-pressed="' + (pres[p.id] ? "true" : "false") + '" data-toggle="' + p.id + '">' +
+        '<span class="box"></span><span class="txt"><span class="nm">' + esc(p.name) + '</span>' +
+        '<span class="dk">' + esc(p.deck || "deck tbd") + '</span></span>' +
+        strikeBadge(flagsOfPlayer(p.id)) + '</button>';
+    });
+    html += '</div></div>';
+  });
+  el("checkin-body").innerHTML = html || '<div class="empty"><b>Nobody matches that filter</b>Clear the search to see the whole roster.</div>';
+  el("checkin-note").textContent = present().length + " of " + state.roster.length + " checked in" +
+    (present().length % 2 ? " · odd number, so check in Judge or one player takes a bye" : "");
+}
+
+function standingRows(cat){
+  var rec = records();
+  var ids = present().filter(function(id){ return cat === undefined || catIdx(tierOf(id)) === cat; });
+  var rows = ids.map(function(id){
+    var r = rec[id];
+    var opps = r.opps.filter(function(o){ return rec[o]; });
+    var owr = 0;
+    if(opps.length){
+      var sum = 0;
+      opps.forEach(function(o){
+        var g = rec[o].w + rec[o].l + rec[o].d;
+        sum += g ? (rec[o].w + 0.5*rec[o].d) / g : 0.5;
+      });
+      owr = sum / opps.length;
+    }
+    var played = r.w + r.l + r.d;
+    var gplayed = r.gw + r.gl;
+    return {
+      id:id, w:r.w, l:r.l, d:r.d, gw:r.gw, gl:r.gl, byes:r.byes,
+      pts: r.w + 0.5*r.d,
+      mwr: played ? (r.w + 0.5*r.d) / played : null,
+      gwr: gplayed ? r.gw / gplayed : null,
+      owr: owr
+    };
+  });
+  rows.sort(function(a,b){
+    if(b.pts !== a.pts) return b.pts - a.pts;
+    if((b.gwr||0) !== (a.gwr||0)) return (b.gwr||0) - (a.gwr||0);
+    if(b.owr !== a.owr) return b.owr - a.owr;
+    return nameOf(a.id).localeCompare(nameOf(b.id));
+  });
+  return rows;
+}
+function pct(x){ return x === null ? "—" : Math.round(x*100) + "%"; }
+
+function leadersHTML(){
+  if(state.rounds.length < 2) return "";
+  var cards = "";
+  CATS.forEach(function(C, ci){
+    if(C.key === "judge") return; /* judges are not competing for prizing */
+    var rows = standingRows(ci);
+    if(!rows.length) return;
+    var body = "";
+    rows.slice(0,3).forEach(function(r, i){
+      var p = byId(r.id);
+      body += '<div class="leadrow' + (i === 0 ? " top" : "") + '"><span class="pos">' + (i+1) + '</span>' +
+        '<span class="nm">' + esc(p.name) + '</span>' +
+        '<span class="dk">' + pct(r.gwr) + ' games</span>' +
+        '<span class="wl">' + r.w + '&ndash;' + r.l + '</span></div>';
+    });
+    cards += '<div class="leadcard"><div class="lc-h"><span class="dot" style="background:var(' + C.css + ')"></span>' +
+      '<strong>' + esc(C.name) + '</strong><span class="dk" style="font-family:var(--mono);font-size:11px;color:var(--muted)">' +
+      rows.length + ' in</span></div>' + body + '</div>';
+  });
+  if(!cards) return "";
+  return '<div class="leaders"><div class="lead-head"><h3>Best of each category</h3>' +
+    '<span class="count">after round ' + state.rounds.length + ' · ranked on match wins, then game win rate</span></div>' +
+    '<div class="leadgrid">' + cards + '</div></div>';
+}
+
+function renderStandings(){
+  el("leaders-body").innerHTML = leadersHTML();
+  var ids = present().filter(function(id){ return !isJudge(id); });
+  if(!ids.length){
+    el("standings-body").innerHTML = '<div class="empty"><b>No players checked in</b>Standings appear once the first round is reported.</div>';
+    return;
+  }
+  var html = "";
+  CATS.forEach(function(C, ci){
+    if(C.key === "judge") return; /* filler seat, never ranked */
+    var rows = standingRows(ci);
+    if(!rows.length) return;
+    html += '<div class="catblock"><div class="tierhead"><span class="dot" style="background:var(' + C.css + ')"></span>' +
+      '<h3>' + esc(C.name) + '</h3><span class="count">' + rows.length + ' player' + (rows.length>1?'s':'') + '</span></div>' +
+      '<div class="tablewrap"><table><thead><tr><th>#</th><th>Player</th><th>Skill</th><th>Deck</th>' +
+      '<th>Matches</th><th>Match win %</th><th>Games</th><th>Game win %</th><th>MMR</th><th>Bye</th><th>Opp win %</th></tr></thead><tbody>';
+    rows.forEach(function(r, i){
+      var p = byId(r.id);
+      html += '<tr><td class="num rank">' + (i+1) + '</td><td class="name">' + esc(p.name) + '</td>' +
+        '<td>' + tierPill(p.tier) + '</td><td class="num" style="color:var(--muted)">' + esc(p.deck || "—") + '</td>' +
+        '<td class="num">' + r.w + '&ndash;' + r.l + (r.d ? "&ndash;" + r.d : "") + '</td>' +
+        '<td class="num">' + pct(r.mwr) + '</td>' +
+        '<td class="num">' + r.gw + '&ndash;' + r.gl + '</td>' +
+        '<td class="num">' + pct(r.gwr) + '</td>' +
+        '<td class="num">' + mmrCell(r.id) + '</td>' +
+        '<td class="num" style="color:var(--muted)">' + (r.byes || "—") + '</td>' +
+        '<td class="num" style="color:var(--muted)">' + pct(r.owr) + '</td></tr>';
+    });
+    html += '</tbody></table></div></div>';
+  });
+  el("standings-body").innerHTML = html;
+}
+
+function mmrCell(id){
+  var e = mmrTable()[id];
+  if(!e) return "—";
+  var d = e.delta;
+  return '<span style="font-weight:600">' + Math.round(e.r) + '</span>' +
+    (d ? ' <span class="' + (d > 0 ? "up" : "down") + '">' + fmtDelta(d) + '</span>' : '') +
+    (e.prov ? ' <span class="prov">prov</span>' : '');
+}
+
+function spark(hist){
+  if(hist.length < 2) return "";
+  var lo = Math.min.apply(null, hist), hi = Math.max.apply(null, hist);
+  var span = (hi - lo) || 1, W = 52, H = 16;
+  var pts = hist.map(function(v, i){
+    return (i / (hist.length - 1) * W).toFixed(1) + "," + (H - (v - lo) / span * H).toFixed(1);
+  }).join(" ");
+  var rising = hist[hist.length-1] >= hist[0];
+  return '<svg class="spk" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H +
+    '" aria-hidden="true"><polyline points="' + pts + '" fill="none" stroke="' +
+    (rising ? "var(--good)" : "var(--bad)") + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+}
+
+function renderMmr(){
+  var t = mmrTable();
+  var ids = present().filter(function(id){ return !isJudge(id); });
+  if(!ids.length){
+    el("mmr-body").innerHTML = '<div class="empty"><b>No players checked in</b>Ratings are seeded by skill: ' + MMR_BASE + ' for never played, up to ' + (MMR_BASE + MMR_PER_LEVEL*3) + ' for amateur. They move as soon as the first round is reported.</div>';
+    el("mmr-note").textContent = "";
+    return;
+  }
+  var rows = ids.map(function(id){ return {id:id, e:t[id]}; }).filter(function(x){ return x.e; });
+  rows.sort(function(a,b){
+    if(b.e.r !== a.e.r) return b.e.r - a.e.r;
+    return nameOf(a.id).localeCompare(nameOf(b.id));
+  });
+  var played = rows.filter(function(x){ return x.e.n; }).length;
+  el("mmr-note").textContent = state.rounds.length
+    ? played + " of " + rows.length + " have played · seeded at " + MMR_BASE + " + " + MMR_PER_LEVEL + " per skill level"
+    : "Nothing played yet. Seeds are " + MMR_BASE + " + " + MMR_PER_LEVEL + " per skill level.";
+
+  var html = '<div class="tablewrap"><table><thead><tr><th>#</th><th>Player</th><th>Skill</th>' +
+    '<th>MMR</th><th>Seed</th><th>Trend</th><th>Last</th><th>Peak</th><th>Perf</th><th>Avg opp</th><th>Record</th><th>Conf</th></tr></thead><tbody>';
+  rows.forEach(function(x, i){
+    var e = x.e, p = byId(x.id);
+    html += '<tr><td class="num rank">' + (i+1) + '</td>' +
+      '<td class="name">' + esc(p.name) + (p.judge ? ' <span class="prov" style="color:var(--t4)">judge</span>' : '') + '</td>' +
+      '<td>' + tierPill(p.tier) + '</td>' +
+      '<td class="num"><span style="font-weight:600;font-size:15px">' + Math.round(e.r) + '</span>' +
+        (e.delta ? ' <span class="' + (e.delta > 0 ? "up" : "down") + '">' + fmtDelta(e.delta) + '</span>' : '') + '</td>' +
+      '<td class="num" style="color:var(--muted)">' + Math.round(e.seed) +
+        (e.carried ? ' <span class="prov" style="color:var(--accent)">carried</span>' : '') + '</td>' +
+      '<td>' + (spark(e.hist) || '<span style="color:var(--muted)">—</span>') + '</td>' +
+      '<td class="num ' + (e.last > 0 ? "up" : e.last < 0 ? "down" : "") + '">' + (e.n ? fmtDelta(e.last) : "—") + '</td>' +
+      '<td class="num" style="color:var(--muted)">' + Math.round(e.peak) + '</td>' +
+      '<td class="num">' + (e.perf === null ? "—" : e.perf) + '</td>' +
+      '<td class="num" style="color:var(--muted)">' + (e.avgOpp === null ? "—" : e.avgOpp) + '</td>' +
+      '<td class="num">' + e.w + '&ndash;' + e.l + (e.d ? "&ndash;" + e.d : "") + '</td>' +
+      '<td class="num" style="color:var(--muted)">±' + e.rd + (e.prov ? ' <span class="prov">prov</span>' : '') + '</td></tr>';
+  });
+  html += '</tbody></table></div>';
+  el("mmr-body").innerHTML = html;
+}
+
+/* ---------- spreadsheet round trip ---------- */
+var SYNC_COLS = ["Player","Category","MMR","Started","Change","Matches W","Matches L",
+                 "Games W","Games L","Perf","Avg opp","Conf"];
+function syncRows(){
+  var t = mmrTable();
+  return present()
+    .filter(function(id){ return !isJudge(id); })
+    .map(function(id){ return {id:id, e:t[id]}; })
+    .filter(function(x){ return x.e; })
+    .sort(function(a,b){ return b.e.r - a.e.r || nameOf(a.id).localeCompare(nameOf(b.id)); })
+    .map(function(x){
+      var e = x.e;
+      return [nameOf(x.id), catOfId(x.id).name, Math.round(e.r), Math.round(e.seed), e.delta,
+              e.w, e.l, e.gw === undefined ? "" : e.gw, e.gl === undefined ? "" : e.gl,
+              e.perf === null ? "" : e.perf, e.avgOpp === null ? "" : e.avgOpp, e.rd];
+    });
+}
+/* The Triton MMR sheet is two columns: Player, Rating. This is the block that
+   pastes straight over it. */
+function ratingText(){
+  var t = mmrTable();
+  var rows = present()
+    .filter(function(id){ return !isJudge(id); })
+    .map(function(id){ return {id:id, r:t[id] ? t[id].r : seedFor(id)}; })
+    .sort(function(a,b){ return b.r - a.r || nameOf(a.id).localeCompare(nameOf(b.id)); });
+  return ["Player\tRating"].concat(rows.map(function(x){
+    return nameOf(x.id) + "\t" + Math.round(x.r);
+  })).join("\n");
+}
+
+/* Everything the spreadsheet needs for one event, in a compact shape so it fits
+   in a URL: players as rows, matches referring to players by index. Includes
+   all present players regardless of how many rounds they completed. */
+function uploadPayload(){
+  var t = mmrTable();
+  
+  /* Gather all players who are currently checked in (present) plus any who participated in at least one round */
+  var activeIds = present().slice();
+  state.rounds.forEach(function(rd){
+    rd.matches.forEach(function(m){
+      if(activeIds.indexOf(m.a) < 0) activeIds.push(m.a);
+      if(activeIds.indexOf(m.b) < 0) activeIds.push(m.b);
+    });
+    if(rd.bye && activeIds.indexOf(rd.bye) < 0) activeIds.push(rd.bye);
+  });
+  /* The judge is a filler seat, not a competitor: nothing about them is written
+     to the sheet, so they can never surface on the public standings. */
+  activeIds = activeIds.filter(function(id){ return !isJudge(id); });
+
+  activeIds.sort(function(a,b){
+    return (t[b] ? t[b].r : 0) - (t[a] ? t[a].r : 0) || nameOf(a).localeCompare(nameOf(b));
+  });
+
+  var idx = {};
+  activeIds.forEach(function(id, i){ idx[id] = i; });
+  
+  var P = activeIds.map(function(id){
+    var e = t[id] || {};
+    return [nameOf(id), catOfId(id).name, Math.round(e.seed || 0), Math.round(e.r || 0),
+            r1(e.delta || 0), e.w || 0, e.l || 0, e.gw || 0, e.gl || 0,
+            e.perf === null || e.perf === undefined ? "" : e.perf, isJudge(id) ? 1 : 0];
+  });
+  
+  var M = [];
+  state.rounds.forEach(function(rd, ri){
+    rd.matches.forEach(function(m, ti){
+      if(!m.w || idx[m.a] === undefined || idx[m.b] === undefined) return;
+      var info = matchMmr(ri, m), tal = gameTally(m);
+      /* The order games fell in, so a reverse sweep can be told from a grind. */
+      var seq = games(m).filter(function(g){ return g; }).join("");
+      M.push([ri+1, ti+1, idx[m.a], idx[m.b], m.w, tal.a, tal.b,
+              info ? info.da : 0, info ? info.db : 0, seq]);
+    });
+    if(rd.bye && idx[rd.bye] !== undefined) M.push([ri+1, 0, idx[rd.bye], -1, "bye", 0, 0, 0, 0, ""]);
+  });
+  return {v:1, d:state.event.date || "", ev:state.event.name || "", p:P, m:M};
+}
+
+function uploadUrl(){
+  var base = (state.gsUrl || "").trim();
+  if(!base) return null;
+  return base + (base.indexOf("?") >= 0 ? "&" : "?") + "p=" + encodeURIComponent(JSON.stringify(uploadPayload()));
+}
+
+function syncText(sep){
+  var rows = syncRows();
+  var q = sep === "," ? function(v){ var sv = String(v); return /[",]/.test(sv) ? '"' + sv.replace(/"/g,'""') + '"' : sv; }
+                      : function(v){ return String(v); };
+  return [SYNC_COLS.map(q).join(sep)].concat(rows.map(function(r){ return r.map(q).join(sep); })).join("\n");
+}
+
+/* Match a pasted name to someone on the roster, the same way check-in does. */
+function findByName(raw){
+  var key = raw.toLowerCase().replace(/[^a-z\s]/g, " ").replace(/\s+/g, " ").trim();
+  if(!key) return null;
+  var hit = null;
+  state.roster.forEach(function(p){
+    if(hit) return;
+    if(p.name.toLowerCase() === key || slug(p.name) === slug(raw)) hit = p;
+  });
+  if(hit) return hit;
+  var parts = key.split(" ");
+  state.roster.forEach(function(p){
+    if(hit) return;
+    var pn = p.name.toLowerCase();
+    if(parts.every(function(w){ return w.length > 1 && pn.indexOf(w) >= 0; })) hit = p;
+  });
+  return hit;
+}
+
+/* One name per line out of a pasted attendance tab. Copes with the Google Form
+   shape (timestamp, then name), a bare name column, "Last, First" order, and a
+   header row. */
+function parseAttendance(text){
+  var out = [];
+  (text || "").split(/\r?\n/).forEach(function(line){
+    if(!line.trim()) return;
+    var low = line.toLowerCase();
+    if(low.indexOf("timestamp") >= 0 || /enter your name|^\s*name\b/.test(low)) return;
+    var parts = (line.indexOf("\t") >= 0 ? line.split("\t") : line.split(","))
+      .map(function(x){ return x.trim(); })
+      .filter(function(x){ return x; })
+      .filter(function(f){
+        if(/^\d{1,4}[\/\-.]\d{1,2}[\/\-.]\d{1,4}([ T,].*)?$/.test(f)) return false; /* a date */
+        if(/^\d{1,2}:\d{2}(:\d{2})?\s*(am|pm)?$/i.test(f)) return false;                /* a time */
+        if(/^\d+$/.test(f)) return false;                                               /* a bare number */
+        return true;
+      });
+    var name = parts.join(" ").replace(/\s+/g, " ").trim();
+    if(name) out.push(name);
+  });
+  return out;
+}
+
+/* mode "replace" makes the pasted list the floor; "add" only tops it up.
+   Replace never removes someone already sitting at a table this round. */
+function applyAttendance(text, mode, addUnknown){
+  var names = parseAttendance(text);
+  var matched = [], unknown = [], added = [];
+  names.forEach(function(n){
+    var p = findByName(n);
+    if(!p && addUnknown){
+      var id = slug(n);
+      while(byId(id)) id = id + "-2";
+      p = {id:id, name:n, deck:"", tier:0, judge:false};
+      state.roster.push(p);
+      added.push(n);
+    }
+    if(p){ if(matched.indexOf(p.id) < 0) matched.push(p.id); }
+    else unknown.push(n);
+  });
+
+  var before = present().slice();
+  var kept = [];
+  if(mode === "replace"){
+    var prot = {};
+    var rd = state.rounds[state.rounds.length - 1];
+    if(rd){
+      rd.matches.forEach(function(m){ prot[m.a] = 1; prot[m.b] = 1; });
+      if(rd.bye) prot[rd.bye] = 1;
+    }
+    before.forEach(function(id){
+      if(matched.indexOf(id) >= 0) return;
+      if(prot[id]){ matched.push(id); kept.push(nameOf(id)); }
+      else if(isJudge(id)) matched.push(id); /* a judge is checked in deliberately, not by attendance */
+    });
+    state.present = matched;
+  } else {
+    matched.forEach(function(id){ if(state.present.indexOf(id) < 0) state.present.push(id); });
+  }
+
+  var newly = present().filter(function(id){ return before.indexOf(id) < 0; });
+  var gone = before.filter(function(id){ return present().indexOf(id) < 0; });
+  return {total:present().length, newly:newly.length, unknown:unknown, added:added,
+          kept:kept, gone:gone.map(nameOf)};
+}
+
+function applyCarry(text){
+  var hits = 0, miss = [];
+  state.carry = state.carry || {};
+  text.split(/\r?\n/).forEach(function(line){
+    if(!line.trim()) return;
+    var parts = line.split(/[\t,;]/).map(function(x){ return x.trim(); }).filter(function(x){ return x; });
+    if(parts.length < 2) return;
+    var num = NaN, nameParts = [];
+    /* The rating is the last field that reads as a number; everything before it is the name. */
+    for(var i = parts.length - 1; i >= 0; i--){
+      var v = parseFloat(parts[i]);
+      if(isNaN(num) && !isNaN(v) && /^[\d.\-+]+$/.test(parts[i])){ num = v; nameParts = parts.slice(0, i); break; }
+    }
+    if(isNaN(num) || !nameParts.length) return;
+    var who = findByName(nameParts.join(" "));
+    if(!who){ miss.push(nameParts.join(" ")); return; }
+    state.carry[who.id] = Math.round(num * 10) / 10;
+    hits++;
+  });
+  return {hits:hits, miss:miss};
+}
+
+/* ---------- conduct: reports, flags, review ----------
+   A report is a ticket with its own number and a status. Upholding one is what puts
+   a flag on a player; a warning goes on the record but carries no flag. Three flags
+   is the review line for a ban. All of this is organizer-only: it never enters the
+   upload payload, so it cannot surface on the public standings page. */
+var FLAG_LIMIT = 3;
+var ST = {open:"Open", upheld:"Upheld", warning:"Warning", dismissed:"Dismissed"};
+
+function reports(){ state.reports = state.reports || []; return state.reports; }
+function nextTicket(){
+  var n = 0;
+  reports().forEach(function(r){
+    var m = /(\d+)$/.exec(String(r.id || ""));
+    if(m) n = Math.max(n, +m[1]);
+  });
+  n = String(n + 1);
+  while(n.length < 4) n = "0" + n;
+  return "RB-" + n;
+}
+function reportById(tid){
+  var rs = reports();
+  for(var i=0;i<rs.length;i++){ if(rs[i].id === tid) return rs[i]; }
+  return null;
+}
+/* A ticket points at a roster id when the name matched somebody, and keeps the typed
+   name either way, so a walk-in since removed from the roster still reads correctly. */
+function subjectName(r){ return r.pid && byId(r.pid) ? nameOf(r.pid) : (r.name || "(unknown)"); }
+function subjectKey(r){ return r.pid || ("name:" + String(r.name || "").trim().toLowerCase()); }
+function resolveName(txt){
+  var q = String(txt || "").trim().toLowerCase();
+  if(!q) return null;
+  var exact = state.roster.filter(function(p){ return p.name.toLowerCase() === q; });
+  if(exact.length === 1) return exact[0].id;
+  var part = state.roster.filter(function(p){ return p.name.toLowerCase().indexOf(q) >= 0; });
+  return part.length === 1 ? part[0].id : null;
+}
+
+/* Flags per player, keyed the way tickets are, so off-roster names count too. */
+function flagTable(){
+  var t = {};
+  reports().forEach(function(r){
+    var k = subjectKey(r);
+    t[k] = t[k] || {key:k, pid:r.pid || null, name:subjectName(r), flags:0, warnings:0, open:0, total:0};
+    t[k].name = subjectName(r);
+    t[k].total++;
+    if(r.status === "upheld") t[k].flags++;
+    else if(r.status === "warning") t[k].warnings++;
+    else if(r.status === "open") t[k].open++;
+  });
+  return t;
+}
+function flagsOfKey(k){ var e = flagTable()[k]; return e ? e.flags : 0; }
+function flagsOfPlayer(id){ return flagsOfKey(id); }
+function strikeBadge(n){
+  if(!n) return "";
+  var cls = n >= FLAG_LIMIT ? "s3" : n === 2 ? "s2" : "s1";
+  var txt = n >= FLAG_LIMIT ? n + " flags · review" : n + (n === 1 ? " flag" : " flags");
+  return '<span class="strike ' + cls + '">' + txt + '</span>';
+}
+function pips(n){
+  var h = '<span class="pips">', lim = Math.max(FLAG_LIMIT, n);
+  for(var i=0;i<lim;i++) h += '<span class="pip' + (i < n ? " on" : "") + '"></span>';
+  return h + '</span>';
+}
+
+function fileReport(){
+  var nameTxt = (el("rp-subject").value || "").trim();
+  if(!nameTxt){ el("rp-msg").textContent = "Name the player the report is about."; return; }
+  var detail = (el("rp-detail").value || "").trim();
+  if(!detail){ el("rp-msg").textContent = "Write down what happened. A ticket with no account of it is no use at review."; return; }
+  var pid = resolveName(nameTxt);
+  var r = {
+    id: nextTicket(),
+    opened: todayISO(),
+    event: state.event.name || "Riftbound",
+    pid: pid,
+    name: pid ? nameOf(pid) : nameTxt,
+    by: (el("rp-by").value || "").trim(),
+    round: (el("rp-round").value || "").trim(),
+    table: (el("rp-table").value || "").trim(),
+    kind: el("rp-kind").value,
+    detail: detail,
+    status: "open",
+    note: "",
+    closed: ""
+  };
+  reports().push(r);
+  tkOpen[r.id] = true;
+  el("rp-subject").value = ""; el("rp-by").value = "";
+  el("rp-round").value = ""; el("rp-table").value = ""; el("rp-detail").value = "";
+  el("rp-msg").textContent = "";
+  touch();
+  toast(r.id + " filed against " + r.name + (pid ? "" : " (not on the roster, logged by name)"));
+}
+
+function setStatus(tid, status){
+  var r = reportById(tid);
+  if(!r) return;
+  if(status === "upheld"){
+    var n = flagsOfKey(subjectKey(r)) + (r.status === "upheld" ? 0 : 1);
+    var note = window.prompt("Upholding " + r.id + " puts flag " + n + " of " + FLAG_LIMIT +
+      " on " + subjectName(r) + ".\n\nWhat did you find? (optional)", r.note || "");
+    if(note === null) return;
+    r.note = note.trim();
+  } else if(status === "dismissed" || status === "warning"){
+    var w = window.prompt((status === "warning" ? "Warning only on " : "Dismissing ") + r.id +
+      ".\n\nReason, for the record (optional)", r.note || "");
+    if(w === null) return;
+    r.note = w.trim();
+  }
+  r.status = status;
+  r.closed = status === "open" ? "" : todayISO();
+  touch();
+  if(status === "upheld"){
+    var tot = flagsOfKey(subjectKey(r));
+    toast(tot >= FLAG_LIMIT
+      ? subjectName(r) + " is at " + tot + " flags and is up for review for a ban."
+      : r.id + " upheld. " + subjectName(r) + " is on " + tot + " of " + FLAG_LIMIT + " flags.");
+  } else {
+    toast(r.id + " marked " + ST[status].toLowerCase() + ".");
+  }
+}
+
+function renderWatchlist(){
+  var t = flagTable();
+  var rows = Object.keys(t).map(function(k){ return t[k]; })
+    .filter(function(x){ return x.flags || x.warnings || x.open; })
+    .sort(function(a,b){ return b.flags - a.flags || b.open - a.open || a.name.localeCompare(b.name); });
+  var review = rows.filter(function(x){ return x.flags >= FLAG_LIMIT; });
+  var badge = el("tab-conduct-n");
+  badge.hidden = !review.length;
+  badge.textContent = review.length;
+  if(!rows.length){
+    el("watch-body").innerHTML = '<div class="empty"><b>No reports on file</b>' +
+      'File one below when a player is reported for foul play. Three upheld reports puts them up for review for a ban.</div>';
+    return;
+  }
+  var html = '<div class="watch">';
+  rows.forEach(function(x){
+    var over = x.flags >= FLAG_LIMIT, bits = [];
+    if(x.open) bits.push(x.open + " open");
+    if(x.warnings) bits.push(x.warnings + " warning" + (x.warnings > 1 ? "s" : ""));
+    bits.push(x.total + " ticket" + (x.total > 1 ? "s" : "") + " total");
+    html += '<div class="wcard' + (over ? " review" : "") + '">' +
+      '<div class="wn">' + esc(x.name) + ' ' + pips(x.flags) + '</div>' +
+      '<div class="wm">' + (over
+        ? '<b style="color:var(--bad)">' + x.flags + ' flags · review for ban</b>'
+        : x.flags + ' of ' + FLAG_LIMIT + ' flags') +
+      ' · ' + bits.join(" · ") + '</div></div>';
+  });
+  el("watch-body").innerHTML = html + '</div>';
+}
+
+function renderTickets(){
+  var q = (el("tk-find").value || "").trim().toLowerCase();
+  var rs = reports().slice().sort(function(a,b){
+    return String(b.opened).localeCompare(String(a.opened)) || String(b.id).localeCompare(String(a.id));
+  }).filter(function(r){
+    if(tkFilter !== "all" && r.status !== tkFilter) return false;
+    if(!q) return true;
+    return [r.id, subjectName(r), r.by, r.kind, r.detail, r.note, r.event]
+      .join(" ").toLowerCase().indexOf(q) >= 0;
+  });
+  document.querySelectorAll("#tk-filt [data-stf]").forEach(function(b){
+    b.setAttribute("aria-pressed", String(b.dataset.stf === tkFilter));
+  });
+  if(!rs.length){
+    el("tick-body").innerHTML = '<div class="empty"><b>' +
+      (reports().length ? "Nothing matches that lookup" : "No tickets yet") + '</b>' +
+      (reports().length ? "Clear the search or pick another status."
+                        : "Reports you file appear here, each with its own ticket number.") + '</div>';
+    return;
+  }
+  var html = "";
+  rs.forEach(function(r){
+    html += '<div class="tick"><button class="tick-h" data-tk="' + esc(r.id) + '" aria-expanded="' +
+      (tkOpen[r.id] ? "true" : "false") + '">' +
+      '<span class="tid">' + esc(r.id) + '</span>' +
+      '<span class="tsub">' + esc(subjectName(r)) + '</span>' +
+      (r.pid ? "" : '<span class="prov">off roster</span>') +
+      '<span class="tkind">' + esc(r.kind) + '</span>' +
+      '<span class="tgap"></span>' +
+      '<span class="st ' + r.status + '">' + ST[r.status] + '</span></button>' +
+      '<div class="tick-b"' + (tkOpen[r.id] ? "" : " hidden") + '>' +
+        '<div class="meta"><span>filed ' + esc(r.opened) + '</span>' +
+        (r.by ? '<span>by ' + esc(r.by) + '</span>' : '') +
+        (r.round ? '<span>round ' + esc(r.round) + '</span>' : '') +
+        (r.table ? '<span>table ' + esc(r.table) + '</span>' : '') +
+        (r.closed ? '<span>closed ' + esc(r.closed) + '</span>' : '') +
+        (r.event ? '<span>' + esc(r.event) + '</span>' : '') + '</div>' +
+        '<p class="body">' + esc(r.detail) + '</p>' +
+        (r.note ? '<p class="resn"><b>Finding:</b> ' + esc(r.note) + '</p>' : '') +
+        '<div class="tick-acts">' +
+          (r.status === "upheld" ? "" : '<button class="btn sm" data-tks="' + esc(r.id) + ':upheld">Uphold · adds a flag</button>') +
+          (r.status === "warning" ? "" : '<button class="btn sm" data-tks="' + esc(r.id) + ':warning">Warning only</button>') +
+          (r.status === "dismissed" ? "" : '<button class="btn sm" data-tks="' + esc(r.id) + ':dismissed">Dismiss</button>') +
+          (r.status === "open" ? "" : '<button class="btn sm ghost" data-tks="' + esc(r.id) + ':open">Reopen</button>') +
+          '<button class="btn sm ghost" data-tkd="' + esc(r.id) + '" style="color:var(--bad)">Delete</button>' +
+        '</div></div></div>';
+  });
+  el("tick-body").innerHTML = html;
+}
+
+function renderConduct(){
+  var rs = reports();
+  var up = rs.filter(function(r){ return r.status === "upheld"; }).length;
+  var op = rs.filter(function(r){ return r.status === "open"; }).length;
+  var t = flagTable();
+  var rev = Object.keys(t).filter(function(k){ return t[k].flags >= FLAG_LIMIT; }).length;
+  el("conduct-note").textContent = rs.length
+    ? rs.length + " ticket" + (rs.length > 1 ? "s" : "") + " on file · " + op + " open · " +
+      up + " upheld · " + rev + " at the review line"
+    : "No reports on file";
+  var dl = "";
+  state.roster.forEach(function(p){ dl += '<option value="' + esc(p.name) + '"></option>'; });
+  el("rp-roster").innerHTML = dl;
+  renderWatchlist();
+  renderTickets();
+}
+
+/* The whole ticket book as a block to paste into a sheet of your own. It stays out
+   of the Triton MMR sync on purpose: that sheet feeds the public standings. */
+function ticketTSV(){
+  var head = ["Ticket","Filed","Event","Player","On roster","Reported by","Round","Table",
+              "Kind","Status","Closed","Flags on player","Report","Finding"];
+  var rows = reports().slice().sort(function(a,b){ return String(a.id).localeCompare(String(b.id)); })
+    .map(function(r){
+      return [r.id, r.opened, r.event || "", subjectName(r), r.pid ? "yes" : "no", r.by || "",
+              r.round || "", r.table || "", r.kind, ST[r.status], r.closed || "",
+              flagsOfKey(subjectKey(r)),
+              String(r.detail || "").replace(/\s*\n\s*/g, " "),
+              String(r.note || "").replace(/\s*\n\s*/g, " ")].join("\t");
+    });
+  return [head.join("\t")].concat(rows).join("\n");
+}
+
+function renderRoster(){
+  var pres = {}; state.present.forEach(function(id){ pres[id] = 1; });
+  var html = '<div class="tablewrap"><table><thead><tr><th>Player</th><th>Level (organizer only)</th><th>Expected deck</th><th>In</th></tr></thead><tbody>';
+  state.roster.slice().sort(function(a,b){ return a.tier - b.tier || a.name.localeCompare(b.name); }).forEach(function(p){
+    html += '<tr><td class="name">' + esc(p.name) +
+      (p.nf ? ' <span style="color:var(--muted);font-family:var(--mono);font-size:10.5px">not in form</span>' : '') +
+      ' ' + strikeBadge(flagsOfPlayer(p.id)) +
+      '</td><td><input type="number" data-skill="' + p.id + '" value="' + fmtSkill(p.tier) + '" min="0" max="4" step="0.5" style="width:66px">' +
+      ' <span style="color:var(--muted);font-size:12.5px">' + esc(tierDef(p.tier).label) + '</span></td>' +
+      '<td><input type="text" data-deck="' + p.id + '" value="' + esc(p.deck || "") + '" placeholder="deck" style="width:130px"></td>' +
+      '<td><button class="btn sm" data-toggle="' + p.id + '">' + (pres[p.id] ? "Checked in" : "Mark in") + '</button></td></tr>';
+  });
+  html += '</tbody></table></div>';
+  el("roster-body").innerHTML = html;
+  var nj = state.roster.filter(function(p){ return !p.judge; }).length;
+  el("roster-note").textContent = nj + " players · names from the interest form, skill levels from the brackets sheet · " +
+    "“Judge” is a placeholder for whichever judge steps in, and sits out until you check it in to even the field";
+
+  var vols = state.volunteers || [];
+  var vh = '<div class="chips">';
+  state.roster.slice().sort(function(a,b){ return b.tier - a.tier || a.name.localeCompare(b.name); }).forEach(function(p){
+    vh += '<button class="chip" aria-pressed="' + (vols.indexOf(p.id) >= 0 ? "true" : "false") + '" data-vol="' + p.id + '">' +
+      '<span class="box"></span><span class="txt"><span class="nm">' + esc(p.name) + '</span><span class="dk">level ' + fmtSkill(p.tier) + '</span></span></button>';
+  });
+  vh += '</div>';
+  el("vol-body").innerHTML = vh;
+}
+
+/* ---------- events ---------- */
+function confirmBox(msg){ return window.confirm(msg); }
+
+function toast(msg){
+  var t = document.createElement("div");
+  t.className = "toast"; t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(function(){ t.remove(); }, 3200);
+}
+
+document.querySelectorAll(".tab").forEach(function(b){
+  b.addEventListener("click", function(){
+    activeTab = b.dataset.tab;
+    document.querySelectorAll(".tab").forEach(function(x){ x.setAttribute("aria-selected", String(x.dataset.tab === activeTab)); });
+    ["pairings","checkin","standings","mmr","conduct","roster"].forEach(function(k){ el("p-" + k).hidden = (k !== activeTab); });
+  });
+});
+
+document.body.addEventListener("click", function(ev){
+  var t = ev.target.closest("[data-toggle],[data-win],[data-vol],[data-g],[data-lock]");
+  if(!t) return;
+  if(t.dataset.toggle){
+    var id = t.dataset.toggle, i = state.present.indexOf(id);
+    if(i >= 0) state.present.splice(i,1); else state.present.push(id);
+    touch();
+  } else if(t.dataset.vol){
+    var v = t.dataset.vol;
+    state.volunteers = state.volunteers || [];
+    var j = state.volunteers.indexOf(v);
+    if(j >= 0) state.volunteers.splice(j,1); else state.volunteers.push(v);
+    touch();
+  } else if(t.dataset.lock !== undefined){
+    var lp = t.dataset.lock.split(":");
+    var lm = state.rounds[+lp[0]].matches[+lp[1]];
+    lm.lock = !lm.lock;
+    touch();
+  } else if(t.dataset.g !== undefined){
+    var gp = t.dataset.g.split(":");
+    var gm = state.rounds[+gp[0]].matches[+gp[1]], gi = +gp[2], gside = gp[3];
+    if(!gm.g) gm.g = [null,null,null];
+    gm.g[gi] = (gm.g[gi] === gside) ? null : gside;
+    if(!gm.manual){
+      gm.w = fromGames(gm);
+    }
+    touch();
+  } else if(t.dataset.win !== undefined){
+    var parts = t.dataset.win.split(":");
+    var rd = state.rounds[+parts[0]], m = rd.matches[+parts[1]], w = parts[2] || null;
+    if(w === null){
+      /* Clear wipes the whole match: games and result. */
+      m.g = [null,null,null];
+      m.w = null;
+      m.manual = false;
+    } else if(m.w === w){
+      m.w = fromGames(m);
+      m.manual = false;
+    } else {
+      m.w = w;
+      m.manual = (w !== fromGames(m));
+    }
+    touch();
+  }
+});
+
+async function copyOut(txt, okMsg, anchor){
+  try{
+    await navigator.clipboard.writeText(txt);
+    el("sync-note").textContent = okMsg;
+  }catch(e){
+    /* Some app views refuse the clipboard, so fall back to a selectable block. */
+    var old = document.getElementById("copy-fallback");
+    if(old) old.remove();
+    var box = document.createElement("textarea");
+    box.id = "copy-fallback";
+    box.value = txt;
+    box.style.cssText = "width:100%;margin-top:10px;height:150px";
+    el("sync-note").textContent = "Clipboard is blocked here. Select the text below and copy it.";
+    anchor.parentNode.parentNode.appendChild(box);
+    box.focus(); box.select();
+  }
+}
+
+function refreshUpload(){
+  var u = el("gs-url");
+  if(document.activeElement !== u) u.value = state.gsUrl || "";
+}
+
+/* Accept the URL as it is typed, not only on blur, so pasting and clicking works. */
+el("gs-url").addEventListener("input", function(){
+  state.gsUrl = el("gs-url").value.trim();
+  persist();
+});
+
+el("btn-copy-rating").addEventListener("click", function(){
+  var txt = ratingText();
+  copyOut(txt, (txt.split("\n").length - 1) + " ratings copied. Select A1 in the Triton MMR sheet and paste.", el("btn-copy-rating"));
+});
+
+el("btn-copy-mmr").addEventListener("click", function(){
+  copyOut(syncText("\t"), syncRows().length + " rows copied with every column.", el("btn-copy-mmr"));
+});
+
+el("btn-csv-mmr").addEventListener("click", function(){
+  var name = "triton-mmr-" + (state.event.date || "ladder") + ".csv";
+  var blob = new Blob([syncText(",")], {type:"text/csv;charset=utf-8"});
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  el("sync-note").textContent = "Saved " + name + ".";
+});
+
+el("btn-carry").addEventListener("click", function(){
+  var r = applyCarry(el("carry-paste").value || "");
+  el("carry-note").textContent = r.hits + " starting rating" + (r.hits === 1 ? "" : "s") + " applied" +
+    (r.miss.length ? " \u00b7 no match for: " + r.miss.join(", ") : "");
+  if(r.hits) touch();
+});
+
+el("btn-carry-clear").addEventListener("click", function(){
+  state.carry = {};
+  el("carry-note").textContent = "Carry-ins cleared. Everyone is back on their skill seed.";
+  touch();
+});
+
+el("btn-force").addEventListener("click", function(){
+  var r = forceTable(el("force-a").value, el("force-b").value);
+  if(typeof r === "string"){ toast(r); return; }
+  el("force-a").value = ""; el("force-b").value = "";
+  touch();
+  toast(r.msg);
+});
+
+/* Late arrivals: pair only the players who are waiting, leaving the board alone. */
+document.body.addEventListener("click", function(ev){
+  if(!ev.target.closest("#btn-pair-late")) return;
+  var n = state.rounds.length;
+  if(!n) return;
+  var rd = state.rounds[n-1];
+  var late = unpairedIn(n-1);
+  if(!late.length) return;
+  /* An odd one out pairs with whoever currently has the bye, which is better
+     for both of them than one playing and one sitting. */
+  if(late.length % 2 === 1 && rd.bye){
+    late.push(rd.bye);
+    rd.bye = null;
+  }
+  if(late.length % 2 === 1){
+    var sitOut = pickBye(late, records(n-1), n-1);
+    late = late.filter(function(id){ return id !== sitOut; });
+    rd.bye = sitOut;
+  }
+  if(late.length >= 2){
+    pairSubset(late, n-1).forEach(function(m){ rd.matches.push(m); });
+  }
+  touch();
+  toast(late.length / 2 + " table" + (late.length > 2 ? "s" : "") + " added. Nothing already on the floor changed.");
+});
+
+/* ---------- conduct wiring ---------- */
+el("btn-file").addEventListener("click", fileReport);
+el("rp-detail").addEventListener("keydown", function(ev){
+  if((ev.metaKey || ev.ctrlKey) && ev.key === "Enter") fileReport();
+});
+el("tk-find").addEventListener("input", renderTickets);
+el("tk-filt").addEventListener("click", function(ev){
+  var b = ev.target.closest("[data-stf]");
+  if(!b) return;
+  tkFilter = b.dataset.stf;
+  renderTickets();
+});
+el("btn-copy-tickets").addEventListener("click", function(){
+  if(!reports().length){ toast("No tickets to copy yet."); return; }
+  copyOut(ticketTSV(), reports().length + " ticket" + (reports().length > 1 ? "s" : "") +
+    " copied. Paste into a sheet of your own, not the Triton MMR one.", el("btn-copy-tickets"));
+});
+document.body.addEventListener("click", function(ev){
+  var h = ev.target.closest("[data-tk]");
+  if(h){ tkOpen[h.dataset.tk] = !tkOpen[h.dataset.tk]; renderTickets(); return; }
+  var a = ev.target.closest("[data-tks]");
+  if(a){ var q = a.dataset.tks.split(":"); setStatus(q[0], q[1]); return; }
+  var d = ev.target.closest("[data-tkd]");
+  if(d){
+    var tid = d.dataset.tkd, r = reportById(tid);
+    if(!r) return;
+    if(!confirmBox("Delete " + tid + " against " + subjectName(r) + "? This removes it from the record for good" +
+       (r.status === "upheld" ? ", and takes its flag off them." : ".")))  return;
+    state.reports = reports().filter(function(x){ return x.id !== tid; });
+    delete tkOpen[tid];
+    touch();
+    toast(tid + " deleted.");
+  }
+});
+
+el("search").addEventListener("input", renderCheckin);
+el("find").addEventListener("input", applyFind);
+
+el("btn-all").addEventListener("click", function(){
+  /* Judges stay out unless deliberately checked in to even out the field. */
+  state.present = state.roster.filter(function(p){ return !p.judge; }).map(function(p){ return p.id; });
+  touch();
+});
+el("btn-none").addEventListener("click", function(){ state.present = []; touch(); });
+
+function runPaste(mode){
+  var r = applyAttendance(el("paste").value || "", mode, el("paste-new").checked);
+  var bits = [r.total + " checked in"];
+  if(r.newly) bits.push(r.newly + " new");
+  if(r.added.length) bits.push("added as walk-ins: " + r.added.join(", "));
+  if(r.gone.length) bits.push("removed: " + r.gone.join(", "));
+  if(r.kept.length) bits.push("kept because already at a table: " + r.kept.join(", "));
+  if(r.unknown.length) bits.push("no match for: " + r.unknown.join(", "));
+  el("paste-note").textContent = bits.join(" \u00b7 ");
+  touch();
+}
+el("btn-paste").addEventListener("click", function(){ runPaste("replace"); });
+el("btn-paste-add").addEventListener("click", function(){ runPaste("add"); });
+
+el("btn-add").addEventListener("click", function(){
+  var nm = (el("new-name").value || "").trim();
+  if(!nm){ el("new-name").focus(); return; }
+  var id = slug(nm);
+  while(byId(id)) id = id + "-2";
+  var lvl = parseFloat(el("new-tier").value);
+  state.roster.push({id:id, name:nm, deck:(el("new-deck").value || "").trim().toLowerCase(), tier:lvl, judge:(lvl >= 4)});
+  state.present.push(id);
+  el("new-name").value = ""; el("new-deck").value = "";
+  touch();
+  toast(nm + " added and checked in.");
+});
+
+el("roster-body").addEventListener("change", function(ev){
+  var deckInp = ev.target.closest("[data-deck]");
+  if(deckInp){
+    var p = byId(deckInp.dataset.deck);
+    if(p){ p.deck = deckInp.value.trim().toLowerCase(); touch(); }
+    return;
+  }
+  var skillInp = ev.target.closest("[data-skill]");
+  if(skillInp){
+    var q = byId(skillInp.dataset.skill);
+    if(q){
+      var v = Math.max(0, Math.min(4, Math.round(parseFloat(skillInp.value) * 2) / 2));
+      if(!isNaN(v)){ q.tier = v; q.judge = (v >= 4); }
+      touch();
+    }
+  }
+});
+
+el("round-pick").addEventListener("change", function(){ viewRound = +el("round-pick").value; renderPairings(); });
+
+el("btn-new-event").addEventListener("click", function(){
+  var played = state.rounds.length;
+  if(played && !confirmBox("Start a new event? " + played + " round" + (played===1?"":"s") +
+     " will be cleared. Every player's finishing rating is kept as their starting rating for next time.")) return;
+  var banked = startNewEvent();
+  touch();
+  toast(banked ? "New event. " + banked + " ratings carried forward." : "New event started.");
+});
+
+el("btn-gen").addEventListener("click", function(){
+  var r = generateRound(false);
+  if(!r){ toast("Check in at least two players first."); return; }
+  state.rounds.push(r);
+  viewRound = state.rounds.length - 1;
+  touch();
+});
+el("btn-reroll").addEventListener("click", function(){
+  if(!state.rounds.length) return;
+  var rd = state.rounds[state.rounds.length-1];
+  var kept = rd.matches.filter(settled).length;
+  if(!rerollRound()) return;
+  touch();
+  toast(kept ? kept + " settled table" + (kept>1?"s":"") + " kept, the rest re-rolled." : "Round re-rolled.");
+});
+el("btn-undo").addEventListener("click", function(){
+  state.rounds.pop();
+  viewRound = state.rounds.length - 1;
+  touch();
+});
+
+/* ---------- storage ---------- */
+/* An ordinary page, so the browser is the store and the sheet is the record.
+   Every change is written immediately; nothing waits on a publish. */
+function persist(){
+  try{ localStorage.setItem(LS_MAIN, JSON.stringify(state)); }catch(e){}
+  /* The standings page reads this, so results appear there instantly without
+     a trip through the sheet. */
+  try{
+    if(state.rounds && state.rounds.length){
+      localStorage.setItem("triton-event", JSON.stringify(uploadPayload()));
+    }
+  }catch(e){}
+}
+
+/* ---------- the sheet ----------
+   Reading needs nothing deployed: Google serves any shared spreadsheet's tabs
+   through its own query endpoint, and loading that through a script tag sidesteps
+   cross-origin rules, so this works served or opened straight off disk.
+   Writing still goes through the Apps Script, since a sheet cannot be written to
+   without one. */
+var SHEET_ID = "1dbezzcgyLVsv_yz_8CfBQmcrI_2_u9AjZ5hjyAaqIRo";
+var cbSeq = 0;
+
+function readSheetTab(tab){
+  return new Promise(function(resolve, reject){
+    var cb = "__rb_" + (++cbSeq) + "_" + Date.now();
+    var tag = document.createElement("script");
+    var settled = false;
+    function cleanup(){
+      try{ delete window[cb]; }catch(e){ window[cb] = undefined; }
+      if(tag.parentNode) tag.parentNode.removeChild(tag);
+      clearTimeout(timer);
+    }
+    var timer = setTimeout(function(){
+      if(settled) return;
+      settled = true; cleanup();
+      reject(new Error("the sheet did not answer in time"));
+    }, 20000);
+    window[cb] = function(data){
+      if(settled) return;
+      settled = true; cleanup();
+      try{
+        if(!data || !data.table) throw new Error("the \u201c" + tab + "\u201d tab sent nothing readable");
+        var cols = (data.table.cols || []).map(function(c, i){
+          return String(c.label || c.id || ("col" + i)).trim();
+        });
+        resolve((data.table.rows || []).map(function(r){
+          var o = {};
+          (r.c || []).forEach(function(cell, i){
+            o[cols[i]] = cell == null ? "" : (cell.f != null ? cell.f : cell.v);
+          });
+          return o;
+        }));
+      }catch(err){ reject(err); }
+    };
+    tag.onerror = function(){
+      if(settled) return;
+      settled = true; cleanup();
+      reject(new Error("Google refused the request for the \u201c" + tab +
+        "\u201d tab. Share the sheet as Anyone with the link, Viewer, and check the tab name"));
+    };
+    tag.src = "https://docs.google.com/spreadsheets/d/" + encodeURIComponent(SHEET_ID) +
+      "/gviz/tq?tqx=out:json;responseHandler:" + cb +
+      "&headers=1&sheet=" + encodeURIComponent(tab) + "&_=" + Date.now();
+    document.head.appendChild(tag);
+  });
+}
+
+function apiBase(){ return (state.gsUrl || "").trim(); }
+function apiUrl(action){
+  var b = apiBase();
+  if(!b) return null;
+  return b + (b.indexOf("?") >= 0 ? "&" : "?") + "action=" + action;
+}
+function say(msg){ el("upload-note").textContent = msg; }
+
+async function sheetGet(action){
+  var url = apiUrl(action);
+  if(!url) throw new Error("add the Apps Script URL first");
+  url += "&_=" + Date.now();   /* never serve a cached answer from an old deployment */
+  var res = await fetch(url, {method:"GET", redirect:"follow", cache:"no-store"});
+  if(!res.ok) throw new Error("the script answered " + res.status);
+  var body = await res.json();
+  if(!body.ok) throw new Error(body.error || "the script reported a problem");
+  return body;
+}
+
+el("btn-ping").addEventListener("click", async function(){
+  say("Testing…");
+  try{
+    var rows = await readSheetTab("Ratings");
+    say("Sheet readable · " + rows.length + " players on the Ratings tab. Testing the write endpoint…");
+    var r = await sheetGet("ping");
+    say("Sheet readable · " + rows.length + " players · write endpoint connected to “" + r.sheet + "”.");
+  }catch(e){
+    say("No answer: " + e.message + ". Check the deployment is a Web app set to Anyone, and that you redeployed a new version after the last edit.");
+  }
+});
+
+/* Pull every known rating in as a carry-in. Anyone the sheet has never seen
+   keeps their skill seed, which is what a first-timer should get. */
+/* Carry-in ratings come straight from the Ratings tab, so this works before the
+   Apps Script is set up and keeps working if the deployment ever breaks. */
+el("btn-pull").addEventListener("click", async function(){
+  say("Reading the Ratings tab…");
+  try{
+    var rows = await readSheetTab("Ratings");
+    state.carry = state.carry || {};
+    var hit = 0, miss = [], skipped = 0;
+    rows.forEach(function(r){
+      var nm = String(r["Player"] || "").trim();
+      if(!nm) return;
+      var rating = Number(r["Rating"]);
+      if(!isFinite(rating) || rating <= 0){ skipped++; return; }
+      var who = findByName(nm);
+      if(who){ state.carry[who.id] = Math.round(rating * 10) / 10; hit++; }
+      else miss.push(nm);
+    });
+    touch();
+    say(hit + " rating" + (hit === 1 ? "" : "s") + " pulled in" +
+        (miss.length ? " · on the sheet but not on the roster: " + miss.join(", ") : "") +
+        " · everyone else starts on their skill seed.");
+  }catch(e){
+    say("Could not read the Ratings tab: " + e.message +
+        ". Share the sheet as Anyone with the link, Viewer.");
+  }
+});
+
+/* Push the whole event: ladder, per-player summary, per-match log. */
+el("btn-push").addEventListener("click", async function(){
+  var base = apiBase();
+  if(!base){ say("Add the Apps Script URL first."); return; }
+  var pay = uploadPayload();
+  var done = pay.m.filter(function(x){ return x[4] !== "bye"; }).length;
+  if(!done){ say("No reported results yet, so there is nothing to sync."); return; }
+  say("Syncing " + pay.p.length + " players and " + done + " matches…");
+  try{
+    /* text/plain keeps this a simple request: no preflight, which Apps Script
+       cannot answer. */
+    var res = await fetch(base, {
+      method:"POST",
+      headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify(pay),
+      redirect:"follow"
+    });
+    if(!res.ok) throw new Error("the script answered " + res.status);
+    var body = await res.json();
+    if(!body.ok) throw new Error(body.error || "the script reported a problem");
+    state.lastSync = new Date().toISOString();
+    persist(); render();
+    say("Synced " + body.ratings + " ratings, " + body.eventRows + " event rows and " +
+        body.matchRows + " match rows for " + body.date + ".");
+    toast("Sheet updated.");
+  }catch(e){
+    say("Sync failed: " + e.message + ". The copy buttons below still work by hand.");
+  }
+});
+
+render();
+})();
+</script>
+
+</body>
+</html>
