@@ -340,7 +340,6 @@ td.name{white-space:normal;font-weight:500}
       <span class="note" id="checkin-note"></span>
       <div class="spacer"></div>
       <button class="btn sm" id="btn-none">Clear all</button>
-      <button class="btn sm" id="btn-all">Mark all</button>
     </div>
     <div class="card" style="padding:14px;margin-bottom:18px">
       <h3 style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Attendance paste</h3>
@@ -362,10 +361,13 @@ td.name{white-space:normal;font-weight:500}
       <p class="note" id="paste-note" style="margin:9px 0 0;font-size:12.5px;color:var(--muted)"></p>
     </div>
 
-    <div class="toolbar">
-      <input type="search" id="search" placeholder="Filter the roster by name or deck" style="flex:1 1 220px">
+    <div class="card" style="padding:14px">
+      <h3 style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Judge</h3>
+      <p class="note" style="margin:0 0 10px;font-size:13px;color:var(--muted)">
+        Add the judge when attendance is odd, so nobody has to take a bye. The paste above leaves this alone.
+      </p>
+      <div id="checkin-body"></div>
     </div>
-    <div id="checkin-body"></div>
   </section>
 
   <section class="panel" id="p-standings" hidden>
@@ -1248,30 +1250,21 @@ function applyFind(){
     : "";
 }
 
+/* Attendance comes from the paste alone. The only seat checked in by hand is the
+   judge, who fills an odd field instead of a bye. */
 function renderCheckin(){
-  var q = (el("search").value || "").trim().toLowerCase();
   var pres = {}; state.present.forEach(function(id){ pres[id] = 1; });
-  var html = "";
-  CATS.forEach(function(C, ci){
-    var list = state.roster.filter(function(p){
-      if(catIdx(p.tier) !== ci) return false;
-      if(!q) return true;
-      return (p.name + " " + (p.deck||"")).toLowerCase().indexOf(q) >= 0;
-    });
-    if(!list.length) return;
-    var inCat = list.filter(function(p){ return pres[p.id]; }).length;
-    html += '<div class="tiergroup"><div class="tierhead"><span class="dot" style="background:var(' + C.css + ')"></span>' +
-      '<h3>' + esc(C.name) + '</h3><span class="count">' + inCat + ' / ' + list.length + ' in</span></div><div class="chips">';
-    list.forEach(function(p){
-      html += '<button class="chip" aria-pressed="' + (pres[p.id] ? "true" : "false") + '" data-toggle="' + p.id + '">' +
-        '<span class="box"></span><span class="txt"><span class="nm">' + esc(p.name) + '</span>' +
-        '<span class="dk">' + esc(p.deck || "deck tbd") + '</span></span>' +
-        strikeBadge(flagsOfPlayer(p.id)) + '</button>';
-    });
-    html += '</div></div>';
+  var judges = state.roster.filter(function(p){ return p.judge; });
+  var html = '<div class="chips">';
+  judges.forEach(function(p){
+    html += '<button class="chip" aria-pressed="' + (pres[p.id] ? "true" : "false") + '" data-toggle="' + p.id + '">' +
+      '<span class="box"></span><span class="txt"><span class="nm">Add ' + esc(p.name.toLowerCase() === "judge" ? "judge" : p.name) + '</span>' +
+      '<span class="dk">' + (pres[p.id] ? "in the pool" : "sitting out") + '</span></span></button>';
   });
-  el("checkin-body").innerHTML = html || '<div class="empty"><b>Nobody matches that filter</b>Clear the search to see the whole roster.</div>';
-  el("checkin-note").textContent = present().length + " of " + state.roster.length + " checked in" +
+  html += '</div>';
+  el("checkin-body").innerHTML = judges.length ? html
+    : '<p class="note" style="margin:0;font-size:13px;color:var(--muted)">No judge on the roster. Add one on the Roster tab at level 4.</p>';
+  el("checkin-note").textContent = present().length + " checked in" +
     (present().length % 2 ? " · odd number, so check in Judge or one player takes a bye" : "");
 }
 
@@ -2089,14 +2082,8 @@ document.body.addEventListener("click", function(ev){
   }
 });
 
-el("search").addEventListener("input", renderCheckin);
 el("find").addEventListener("input", applyFind);
 
-el("btn-all").addEventListener("click", function(){
-  /* Judges stay out unless deliberately checked in to even out the field. */
-  state.present = state.roster.filter(function(p){ return !p.judge; }).map(function(p){ return p.id; });
-  touch();
-});
 el("btn-none").addEventListener("click", function(){ state.present = []; touch(); });
 
 function runPaste(mode){
