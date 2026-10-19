@@ -364,7 +364,7 @@ td.name{white-space:normal;font-weight:500}
     <div class="card" style="padding:14px">
       <h3 style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Judge</h3>
       <p class="note" style="margin:0 0 10px;font-size:13px;color:var(--muted)">
-        Add the judge when attendance is odd, so nobody has to take a bye. The paste above leaves this alone.
+        The judge steps in on their own whenever an odd number of players is checked in, so nobody has to take a bye, and steps out again when the count is even. Toggle it here to override.
       </p>
       <div id="checkin-body"></div>
     </div>
@@ -1911,6 +1911,8 @@ document.body.addEventListener("click", function(ev){
   if(t.dataset.toggle){
     var id = t.dataset.toggle, i = state.present.indexOf(id);
     if(i >= 0) state.present.splice(i,1); else state.present.push(id);
+    /* Toggling the judge by hand is an override, so only a player change re-evens. */
+    if(!isJudge(id)) autoJudge();
     touch();
   } else if(t.dataset.vol){
     var v = t.dataset.vol;
@@ -2086,9 +2088,31 @@ el("find").addEventListener("input", applyFind);
 
 el("btn-none").addEventListener("click", function(){ state.present = []; touch(); });
 
+/* Keep the floor even. Whenever the players checked in change, the judge steps in
+   for an odd count and steps out for an even one. A judge already seated at a table
+   in the current round is never pulled out from under their opponent; a new round
+   (fresh) re-evens from scratch. */
+function autoJudge(fresh){
+  var judge = state.roster.filter(function(p){ return p.judge; })[0];
+  if(!judge) return null;
+  var others = present().filter(function(id){ return id !== judge.id; }).length;
+  var at = state.present.indexOf(judge.id);
+  if(others % 2 === 1 && at < 0){ state.present.push(judge.id); return "in"; }
+  if(others % 2 === 0 && at >= 0){
+    var rd = !fresh && state.rounds[state.rounds.length - 1];
+    var seated = rd && (rd.bye === judge.id || rd.matches.some(function(m){ return m.a === judge.id || m.b === judge.id; }));
+    if(seated) return null;
+    state.present.splice(at, 1);
+    return "out";
+  }
+  return null;
+}
+
 function runPaste(mode){
   var r = applyAttendance(el("paste").value || "", mode, el("paste-new").checked);
-  var bits = [r.total + " checked in"];
+  var j = autoJudge();
+  var bits = [present().length + " checked in"];
+  if(j) bits.push(j === "in" ? "judge added to even the floor" : "judge stepped out, the floor is even");
   if(r.newly) bits.push(r.newly + " new");
   if(r.added.length) bits.push("added as walk-ins: " + r.added.join(", "));
   if(r.gone.length) bits.push("removed: " + r.gone.join(", "));
@@ -2108,6 +2132,7 @@ el("btn-add").addEventListener("click", function(){
   var lvl = parseFloat(el("new-tier").value);
   state.roster.push({id:id, name:nm, deck:(el("new-deck").value || "").trim().toLowerCase(), tier:lvl, judge:(lvl >= 4)});
   state.present.push(id);
+  if(lvl < 4) autoJudge();
   el("new-name").value = ""; el("new-deck").value = "";
   touch();
   toast(nm + " added and checked in.");
@@ -2143,6 +2168,7 @@ el("btn-new-event").addEventListener("click", function(){
 });
 
 el("btn-gen").addEventListener("click", function(){
+  autoJudge(true);
   var r = generateRound(false);
   if(!r){ toast("Check in at least two players first."); return; }
   state.rounds.push(r);
