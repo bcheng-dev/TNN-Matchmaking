@@ -347,11 +347,13 @@ td.name{white-space:normal;font-weight:500}
       <p class="note" style="margin:0 0 10px;font-size:13px;color:var(--muted)">
         Load the signup sheet before round 1. Everyone who signed up for the event keeps their MMR from the
         Triton MMR sheet; anyone without one starts from their experience answer: never played 900, noob 1000,
-        amateur 1025, Nexus Nights 1050, PROGAMER 1100. Anyone marked checked in on the sheet is checked in here.
+        amateur 1025, Nexus Nights 1050, PROGAMER 1100. Anyone the Discord bot has checked in for the event is
+        checked in here; press Load checked-in again as more people arrive. Nobody is ever checked out by it.
       </p>
       <div class="toolbar" style="margin:0">
         <select id="su-event" aria-label="Event" hidden></select>
         <button class="btn primary" id="btn-signups">Load signups</button>
+        <button class="btn" id="btn-checkins">Load checked-in</button>
       </div>
       <p class="note" id="su-note" style="margin:9px 0 0;font-size:12.5px;color:var(--muted)"></p>
     </div>
@@ -2211,8 +2213,9 @@ function runPaste(mode){
   el("paste-note").textContent = bits.join(" \u00b7 ");
   touch();
 }
-el("btn-signups").addEventListener("click", loadSignups);
-el("su-event").addEventListener("change", loadSignups);
+el("btn-signups").addEventListener("click", function(){ loadSignups(false); });
+el("btn-checkins").addEventListener("click", function(){ loadSignups(true); });
+el("su-event").addEventListener("change", function(){ loadSignups(false); });
 el("btn-paste").addEventListener("click", function(){ runPaste("replace"); });
 el("btn-paste-add").addEventListener("click", function(){ runPaste("add"); });
 
@@ -2356,7 +2359,8 @@ function readSheetTab(tab, sheetId){
    it, anyone without one is seeded from how experienced they said they are.
    Only the name, experience, wanted deck, event and check-in columns are read;
    emails and Discord details never leave the sheet. */
-var SIGNUP_SHEET_ID = "1Tsoclk1mt6Yr8r2z9vT-j5KSBpxx-phHeVTj17B89ac", SIGNUP_TAB = "10/23";
+var SIGNUP_SHEET_ID = "1Tsoclk1mt6Yr8r2z9vT-j5KSBpxx-phHeVTj17B89ac", SIGNUP_TAB = "10/23",
+    CHECKIN_TAB = "Check-in Log";
 var signupRows = null;
 
 /* Form headers carry trailing spaces and long wording, so columns are found by
@@ -2450,12 +2454,53 @@ function applySignups(rows, ratings, iso){
   return out;
 }
 
-async function loadSignups(){
+/* The Discord bot logs each check-in on its own tab: one row per check-in, with
+   the event date and the name it matched. Everyone logged for this event is
+   checked in. Someone logged who never signed up is added as a walk-in at never
+   played, so they can still be paired; their level can be set on the Roster tab. */
+function applyCheckinLog(log, iso){
+  var out = {checked:0, added:[]};
+  if(!log) return out;
+  var cName = colOf(log, /^name$/i), cDate = colOf(log, /event date/i);
+  if(!cName || !cDate) return out;
+  log.forEach(function(r){
+    var nm = String(r[cName] || "").trim();
+    if(!nm || asISO(r[cDate]) !== iso) return;
+    var p = findByName(nm);
+    if(!p){
+      var id = slug(nm);
+      while(byId(id)) id = id + "-2";
+      p = {id:id, name:nm, deck:"", tier:0, judge:false};
+      state.roster.push(p);
+      out.added.push(nm);
+    }
+    if(state.present.indexOf(p.id) < 0){ state.present.push(p.id); out.checked++; }
+  });
+  autoJudge();
+  return out;
+}
+/* Sheet dates arrive as "2026-10-23", "10/23/2026" or Google's "Date(2026,9,23)". */
+function asISO(v){
+  var s = String(v || "").trim(), m;
+  if((m = /^Date\((\d+),(\d+),(\d+)/.exec(s))) return m[1] + "-" + String(+m[2] + 1).padStart(2, "0") + "-" + String(+m[3]).padStart(2, "0");
+  if((m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s))) return m[3] + "-" + m[1].padStart(2, "0") + "-" + m[2].padStart(2, "0");
+  return s.slice(0, 10);
+}
+
+async function loadSignups(checkinsOnly){
   var note = el("su-note");
-  note.textContent = "Reading the signup sheet and the Ratings tab…";
+  note.textContent = checkinsOnly ? "Reading the check-in log…" : "Reading the signup sheet and the Ratings tab…";
   try{
-    var got = await Promise.all([readSheetTab(SIGNUP_TAB, SIGNUP_SHEET_ID), readSheetTab("Ratings")]);
+    var got = await Promise.all([
+      readSheetTab(SIGNUP_TAB, SIGNUP_SHEET_ID),
+      readSheetTab("Ratings"),
+      /* A missing log tab is not an error; the signups still load. */
+      readSheetTab(CHECKIN_TAB, SIGNUP_SHEET_ID).catch(function(){ return null; })
+    ]);
     var rows = got[0];
+    /* Google serves the first tab when a name does not match, so a log without
+       its own columns is no log at all. */
+    var log = got[2] && colOf(got[2], /event date/i) ? got[2] : null;
     /* Google quietly serves the first tab when the name does not match, so make
        sure this is really the form responses. */
     if(!colOf(rows, /what is your name/i)) throw new Error("no “" + SIGNUP_TAB + "” tab of form responses was found");
@@ -2471,12 +2516,19 @@ async function loadSignups(){
     if(!want){ note.textContent = "The signup tab has no event dates yet."; return; }
     pick.value = want;
     var r = applySignups(rows, got[1], want);
-    var bits = [r.total + " signed up for " + prettyDate(want),
-                r.rated + " with an MMR on the sheet",
-                r.seeded + " seeded from their experience answer"];
-    if(r.added.length) bits.push("new to the roster: " + r.added.join(", "));
-    if(r.checked) bits.push(r.checked + " checked in from the sheet");
+    var c = applyCheckinLog(log, want);
+    var checked = r.checked + c.checked;
+    var bits = checkinsOnly
+      ? [checked ? checked + " newly checked in for " + prettyDate(want) : "Nobody new checked in for " + prettyDate(want),
+         present().length + " on the floor"]
+      : [r.total + " signed up for " + prettyDate(want),
+         r.rated + " with an MMR on the sheet",
+         r.seeded + " seeded from their experience answer"];
+    if(!checkinsOnly && r.added.length) bits.push("new to the roster: " + r.added.join(", "));
+    if(!checkinsOnly && checked) bits.push(checked + " checked in from the sheet");
+    if(c.added.length) bits.push("checked in without a signup, added at never played: " + c.added.join(", "));
     if(r.missing.length) bits.push("said they have played here but have no MMR on the sheet, seeded as Nexus Nights: " + r.missing.join(", "));
+    if(!log) bits.push("no “" + CHECKIN_TAB + "” tab found");
     touch();
     note.textContent = bits.join(" · ");
   }catch(e){
