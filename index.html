@@ -600,7 +600,7 @@ var published = state;
 var dirty = false;
 
 function saveDraft(){ persist(); }
-function touch(){ _mmrCache = {}; persist(); render(); }
+function touch(){ _mmrCache = {}; persist(); render(); scheduleSync(); }
 
 /* ---------- helpers ---------- */
 function byId(id){ for(var i=0;i<state.roster.length;i++){ if(state.roster[i].id===id) return state.roster[i]; } return null; }
@@ -1114,9 +1114,7 @@ function render(){
   var last = state.rounds.length;
   el("s-round").textContent = last ? String(last) : "—";
   el("s-tables").textContent = last ? state.rounds[last-1].matches.length : 0;
-  var ls = state.lastSync ? new Date(state.lastSync) : null;
-  el("dirty").hidden = false;
-  el("dirty").textContent = ls ? "Synced " + ls.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"}) : "Not synced";
+  syncBadge();
   renderPairings();
   renderCheckin();
   renderStandings();
@@ -2615,13 +2613,37 @@ el("btn-pull").addEventListener("click", async function(){
   }
 });
 
-/* Push the whole event: ladder, per-player summary, per-match log. */
-el("btn-push").addEventListener("click", async function(){
+/* Push the whole event: ladder, per-player summary, per-match log.
+   It runs on its own a few seconds after any change once results are in, so the
+   standings page fills in table by table; the button forces one now. The script
+   replaces the night's rows each time, so syncing again is always safe. A failed
+   sync retries by itself. */
+var sync = {busy:false, again:false, timer:null, sent:"", failed:false};
+var SYNC_DELAY = 4000, SYNC_RETRY = 30000;
+
+function syncBadge(){
+  var b = el("dirty"), ls = state.lastSync ? new Date(state.lastSync) : null;
+  b.hidden = false;
+  b.textContent = sync.busy ? "Syncing…"
+    : sync.failed ? "Sync failed · retrying"
+    : ls ? "Synced " + ls.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"}) : "Not synced";
+}
+function scheduleSync(delay){
+  if(!apiBase() || !state.rounds.length) return;
+  clearTimeout(sync.timer);
+  sync.timer = setTimeout(function(){ syncNow(false); }, delay || SYNC_DELAY);
+}
+
+async function syncNow(manual){
   var base = apiBase();
-  if(!base){ say("Add the Apps Script URL first."); return; }
+  if(!base){ if(manual) say("Add the Apps Script URL first."); return; }
   var pay = uploadPayload();
   var done = pay.m.filter(function(x){ return x[4] !== "bye"; }).length;
-  if(!done){ say("No reported results yet, so there is nothing to sync."); return; }
+  if(!done){ if(manual) say("No reported results yet, so there is nothing to sync."); return; }
+  var body = JSON.stringify(pay);
+  if(!manual && body === sync.sent) return;   /* nothing changed since the last sync */
+  if(sync.busy){ sync.again = true; return; }
+  sync.busy = true; syncBadge();
   say("Syncing " + pay.p.length + " players and " + done + " matches…");
   try{
     /* text/plain keeps this a simple request: no preflight, which Apps Script
@@ -2629,21 +2651,30 @@ el("btn-push").addEventListener("click", async function(){
     var res = await fetch(base, {
       method:"POST",
       headers:{"Content-Type":"text/plain;charset=utf-8"},
-      body:JSON.stringify(pay),
+      body:body,
       redirect:"follow"
     });
     if(!res.ok) throw new Error("the script answered " + res.status);
-    var body = await res.json();
-    if(!body.ok) throw new Error(body.error || "the script reported a problem");
+    var out = await res.json();
+    if(!out.ok) throw new Error(out.error || "the script reported a problem");
+    sync.sent = body; sync.failed = false;
     state.lastSync = new Date().toISOString();
-    persist(); render();
-    say("Synced " + body.ratings + " ratings, " + body.eventRows + " event rows and " +
-        body.matchRows + " match rows for " + body.date + ".");
-    toast("Sheet updated.");
+    persist();
+    say("Synced " + out.ratings + " ratings, " + out.eventRows + " event rows and " +
+        out.matchRows + " match rows for " + out.date + "." +
+        (out.version && out.version !== "4-live" ? " The script is on an older version (" + out.version + "); redeploy it." : ""));
+    if(manual) toast("Sheet updated.");
   }catch(e){
-    say("Sync failed: " + e.message + ". The copy buttons below still work by hand.");
+    sync.failed = true;
+    say("Sync failed: " + e.message + ". It will retry by itself; the copy buttons below still work by hand.");
+    scheduleSync(SYNC_RETRY);
+  }finally{
+    sync.busy = false;
+    syncBadge();
+    if(sync.again){ sync.again = false; scheduleSync(); }
   }
-});
+}
+el("btn-push").addEventListener("click", function(){ syncNow(true); });
 
 render();
 })();
