@@ -321,6 +321,7 @@ td.name{white-space:normal;font-weight:500}
     <div class="rules">
       <b>Pairing rules applied, in order</b>
       <ol>
+        <li>Within 200 MMR. Every table is kept inside a 200-point rating window, and the lowest-rated players get the closest matches. If anyone has nobody left inside it, the window widens 50 points at a time for the whole floor until everyone fits; the round says when that happened and marks any table past 200.</li>
         <li>Swiss on effective strength, which is the skill level from the brackets sheet adjusted by today's record. One net win is worth half a point, so a 1&ndash;0 level 0 is even with a 0&ndash;1 level 1 and the two get paired.</li>
         <li>Up to one point apart is normal once records diverge. Two or more apart is allowed only when the records cancel the gap, like a 1&ndash;0 level 0 against a 0&ndash;1 level 2. Three apart is never allowed, so level 0 never sees level 3.</li>
         <li>Fewest mirror matchups. Two players on the same expected deck are only paired when nothing else works.</li>
@@ -424,6 +425,7 @@ td.name{white-space:normal;font-weight:500}
         <li>The change is <span class="formula">K &times; margin &times; (result &minus; E)</span>. Beating someone rated above you pays more than beating someone below, and the loser pays exactly what the winner earns, so the pool total stays flat.</li>
         <li>K is deliberately conservative: <b>28</b> for a player's first three matches, then <b>20</b>. An even matchup moves 12 to 18 points, while a 200-point upset win on a sweep pays about <b>+27</b>. Nobody's rating lurches on one result.</li>
         <li>Margin reads the best of three and cuts both ways. A <b>2&ndash;0 sweep</b> was decisive, so it pays <b>1.25&times;</b>. A <b>2&ndash;1</b> could have gone either way, so it counts <b>0.75&times;</b>: the winner gains less and the loser drops less. Taking a game off the person who beats you genuinely softens the loss. Both players always use the same multiplier, so the pool stays flat.</li>
+        <li>A <b>wide gap</b> counts for less. Up to 200 apart a match moves ratings normally; past that it eases down to <b>half weight at 400 apart</b>, since a lopsided match tells you little about either player. Both players get the same reduction, so the pool stays flat.</li>
         <li>Everyone in a round moves off the ratings they started that round with, so results inside one round never cascade into each other.</li>
         <li>A <b>carry-in</b> pasted from the spreadsheet replaces the skill seed for that player, so week two starts where week one finished. Anyone without a carry-in still opens on their skill seed, which is what a first-timer should get.</li>
         <li><b>Seed</b> is where that player started, so <b>MMR</b> minus <b>Seed</b> is what they have earned tonight. The green and red figures beside MMR show exactly that.</li>
@@ -657,11 +659,23 @@ function marginMult(m){
   if(diff === 1 && played >= 3) return CLOSE_MULT; /* 2-1, could have gone either way */
   return 1;                                        /* a draw, or games not logged */
 }
-function marginLabel(m){
+/* A lopsided match says little about either player, so it moves both less: full
+   weight up to 200 apart, easing to half weight at 400 apart and beyond. Close
+   ratings keep the normal swing. Both sides use the same multiplier, so the pool
+   stays flat. */
+var GAP_SOFT = 200, GAP_HARD = 400, GAP_FLOOR = 0.5;
+function gapMult(ra, rb){
+  var d = Math.abs(ra - rb);
+  if(d <= GAP_SOFT) return 1;
+  return Math.max(GAP_FLOOR, 1 - (1 - GAP_FLOOR) * (d - GAP_SOFT) / (GAP_HARD - GAP_SOFT));
+}
+function marginLabel(m, gm){
   var mm = marginMult(m);
-  return mm === SWEEP_MULT ? "sweep \u00d7" + SWEEP_MULT
+  var s = mm === SWEEP_MULT ? "sweep \u00d7" + SWEEP_MULT
     : mm === CLOSE_MULT ? "close \u00d7" + CLOSE_MULT
     : "";
+  if(gm && gm < 1) s += (s ? " \u00b7 " : "") + "wide gap \u00d7" + (Math.round(gm * 100) / 100);
+  return s;
 }
 function r1(x){ return Math.round(x * 10) / 10; }
 
@@ -684,7 +698,7 @@ function mmrTable(uptoIdx){
       if(!A || !B) return;
       var ea = eloExpected(A.r, B.r);
       var sa = m.w === "a" ? 1 : m.w === "b" ? 0 : 0.5;
-      var mm = marginMult(m);
+      var mm = marginMult(m) * gapMult(A.r, B.r);
       ups.push({id:m.a, d:kFor(A.n) * mm * (sa - ea),       opp:B.r, s:sa});
       ups.push({id:m.b, d:kFor(B.n) * mm * ((1-sa) - (1-ea)), opp:A.r, s:1-sa});
     });
@@ -722,8 +736,9 @@ function matchMmr(roundIdx, m){
   var A = pre[m.a], B = pre[m.b];
   if(!A || !B) return null;
   var ea = eloExpected(A.r, B.r);
-  var mm = marginMult(m);
-  var out = {ra:A.r, rb:B.r, ea:ea, eb:1-ea, da:null, db:null};
+  var gm = gapMult(A.r, B.r);
+  var mm = marginMult(m) * gm;
+  var out = {ra:A.r, rb:B.r, ea:ea, eb:1-ea, da:null, db:null, gm:gm};
   if(m.w){
     var sa = m.w === "a" ? 1 : m.w === "b" ? 0 : 0.5;
     out.da = r1(kFor(A.n) * mm * (sa - ea));
@@ -756,7 +771,20 @@ function records(uptoIdx){
 
 /* ---------- pairing engine ---------- */
 var P_MIRROR = 1200, P_EFF = 240, P_RAW1 = 40, P_STRETCH = 110, P_RAW2 = 800,
-    P_REMATCH = 1e6, P_BLOCK2 = 1e7, P_BLOCK3 = 1e9, VOL_RELIEF = 30, JUDGE_PREF = 900, P_MMR = 12;
+    P_REMATCH = 1e6, P_BLOCK2 = 1e7, P_BLOCK3 = 1e9, VOL_RELIEF = 30, JUDGE_PREF = 900, P_MMR = 200;
+
+/* Rating window. Everyone is paired within 200 MMR of their opponent. When that
+   leaves someone with nobody inside it, the window widens 50 points at a time,
+   for everyone, until the whole floor fits. A fixed 50 beats stepping by
+   (highest - lowest) / players: on a typical 250-point floor of 30 that step is
+   about 8, so the search would run dozens of times to widen as far as 50 does once.
+   Stepping outside the window costs less than a rematch, so the window widens
+   before anyone is handed a repeat opponent. */
+var MMR_WINDOW = 200, WINDOW_STEP = 50, P_WINDOW = 5e5,
+    LOW_PRIO = 1;  /* the lowest-rated pairs weigh their rating gap up to (1 + this)x */
+
+function mmrGap(mt, a, b){ return (mt[a] && mt[b]) ? Math.abs(mt[a].r - mt[b].r) : 0; }
+function outsideWindow(mt, a, b, win){ return !isJudge(a) && !isJudge(b) && mmrGap(mt, a, b) > win; }
 
 /* Effective strength: skill tier, adjusted by how the player is actually doing today.
    One net win is worth half a tier, so a 1-0 tier 0 sits level with a 0-1 tier 1. */
@@ -774,7 +802,21 @@ function bridges(rec, a, b){
   return (nl - nh) >= 2;
 }
 
-function makeCost(rec, vols){
+/* lo and hi are the lowest and highest ratings in the pool, so a pair's place on
+   the floor can weigh how tightly it should be matched. */
+function makeCost(rec, vols, upto, win, lo, hi){
+  var mt = mmrTable(upto);
+  if(win === undefined) win = Infinity;
+  /* The search asks for the same pairs thousands of times; a pair's cost never
+     changes within one search, so work it out once. */
+  var memo = {};
+  var raw = pairCost(rec, vols, mt, win, lo, hi);
+  return function(a,b){
+    var k = a < b ? a + "|" + b : b + "|" + a;
+    return k in memo ? memo[k] : (memo[k] = raw(a,b));
+  };
+}
+function pairCost(rec, vols, mt, win, lo, hi){
   return function(a,b){
     var c = 0;
     var rawD = Math.abs(tierOf(a) - tierOf(b));
@@ -800,10 +842,16 @@ function makeCost(rec, vols){
       var nv = (vols.indexOf(a)>=0?1:0) + (vols.indexOf(b)>=0?1:0);
       c -= nv * VOL_RELIEF * rawD;
     }
-    /* Among options the rules allow equally, prefer the closer rating. Small
-       weight on purpose: this refines a choice, it never overrides category rules. */
-    var mt = mmrTable();
-    if(mt[a] && mt[b]) c += Math.pow(Math.abs(mt[a].r - mt[b].r) / 100, 2) * P_MMR;
+    /* Closer ratings are better, and they matter most at the bottom of the floor:
+       the weakest players get the tightest matches, the strongest absorb the
+       slack. Leaving the window is a near-hard rule; the category limits above
+       still outrank it, so a never-played player never meets an amateur. */
+    if(mt[a] && mt[b]){
+      var gap = Math.abs(mt[a].r - mt[b].r), mid = (mt[a].r + mt[b].r) / 2;
+      var low = hi > lo ? Math.max(0, Math.min(1, (hi - mid) / (hi - lo))) : 0;
+      c += Math.pow(gap / 100, 2) * P_MMR * (1 + LOW_PRIO * low);
+      if(gap > win) c += P_WINDOW;
+    }
 
     var da = deckOf(a), db = deckOf(b);
     if(da && db && da === db) c += P_MIRROR;
@@ -815,10 +863,10 @@ function makeCost(rec, vols){
 
 function shuffle(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
 
-function matchPool(pool, cost){
+function matchPool(pool, cost, restarts){
   if(pool.length < 2) return [];
   var best = null, bestCost = Infinity;
-  var restarts = pool.length > 20 ? 400 : 700;
+  restarts = restarts || (pool.length > 20 ? 400 : 700);
   for(var t=0;t<restarts;t++){
     var order = shuffle(pool.slice());
     var used = {}, pairs = [];
@@ -884,14 +932,35 @@ function asMatch(p){
   return {a:p[0], b:p[1], w:null, g:[null,null,null], manual:false, lock:false};
 }
 
+/* Pair a pool inside the tightest rating window that fits everyone: 200 first,
+   then 50 wider each pass until nobody is left outside it. The judge is a filler
+   seat and is exempt from the window. */
+function pairInWindow(pool, rec, upto){
+  var mt = mmrTable(upto);
+  var vols = (state.volunteers||[]).filter(function(v){ return pool.indexOf(v) >= 0; });
+  var rs = pool.filter(function(id){ return !isJudge(id) && mt[id]; }).map(function(id){ return mt[id].r; });
+  var lo = rs.length ? Math.min.apply(null, rs) : 0, hi = rs.length ? Math.max.apply(null, rs) : 0;
+  /* A quick search is enough to tell whether a window fits; the full search runs
+     once, on the window that does. */
+  var win = MMR_WINDOW;
+  for(;;){
+    var probe = matchPool(pool.slice(), makeCost(rec, vols, upto, win, lo, hi), 60);
+    var over = probe.some(function(p){ return outsideWindow(mt, p[0], p[1], win); });
+    if(!over || win >= hi - lo) break;
+    win += WINDOW_STEP;
+  }
+  var pairs = matchPool(pool.slice(), makeCost(rec, vols, upto, win, lo, hi));
+  pairs.sort(pairOrder(rec));
+  return {matches: pairs.map(asMatch), window: win};
+}
+
 /* Pair a specific set of players, used for late arrivals so the board already
    on the floor is never disturbed. */
 function pairSubset(ids, upto){
-  var rec = records(upto);
-  var vols = (state.volunteers||[]).filter(function(v){ return ids.indexOf(v) >= 0; });
-  var pairs = matchPool(ids.slice(), makeCost(rec, vols));
-  pairs.sort(pairOrder(rec));
-  return pairs.map(asMatch);
+  var rd = state.rounds[upto];
+  var res = pairInWindow(ids.slice(), records(upto), upto);
+  if(rd) rd.window = Math.max(rd.window || MMR_WINDOW, res.window);
+  return res.matches;
 }
 
 /* Re-roll the unsettled part of the current round. Locked tables and tables
@@ -909,10 +978,9 @@ function rerollRound(){
     bye = pickBye(pool, rec, upto);
     pool = pool.filter(function(id){ return id !== bye; });
   }
-  var vols = (state.volunteers||[]).filter(function(v){ return pool.indexOf(v) >= 0; });
-  var pairs = matchPool(pool, makeCost(rec, vols));
-  pairs.sort(pairOrder(rec));
-  var fresh = pairs.map(asMatch);
+  var res = pairInWindow(pool, rec, upto);
+  var fresh = res.matches;
+  rd.window = res.window;
   /* Drop the new tables into the slots the unsettled ones occupied, so the
      numbers players are already sitting at do not move. */
   var out = [], fi = 0;
@@ -970,16 +1038,14 @@ function generateRound(replaceLast){
   if(ids.length < 2) return null;
   var upto = replaceLast ? state.rounds.length - 1 : state.rounds.length;
   var rec = records(upto);
-  var vols = (state.volunteers||[]).filter(function(v){ return ids.indexOf(v) >= 0; });
 
   var pool = ids.slice(), bye = null;
   if(pool.length % 2 === 1){
     bye = pickBye(pool, rec, upto);
     pool = pool.filter(function(id){ return id !== bye; });
   }
-  var pairs = matchPool(pool, makeCost(rec, vols));
-  pairs.sort(pairOrder(rec));
-  return {n: upto + 1, bye: bye, matches: pairs.map(asMatch)};
+  var res = pairInWindow(pool, rec, upto);
+  return {n: upto + 1, bye: bye, matches: res.matches, window: res.window};
 }
 
 function flagsFor(m, roundIdx){
@@ -988,7 +1054,10 @@ function flagsFor(m, roundIdx){
   var effD = Math.abs(effOf(rec,m.a) - effOf(rec,m.b));
   var da = deckOf(m.a), db = deckOf(m.b);
   var judged = isJudge(m.a) !== isJudge(m.b);
+  var mt = mmrTable(roundIdx);
   return {
+    mmrGap: judged ? 0 : Math.round(mmrGap(mt, m.a, m.b)),
+    wide: outsideWindow(mt, m.a, m.b, MMR_WINDOW),
     mirror: !!(da && db && da === db),
     gap: rawD,
     effD: effD,
@@ -1094,6 +1163,7 @@ function renderPairings(){
     if(f.bridged) fl += '<span class="flag gap">stretch, record-matched</span>';
     if(f.illegal) fl += '<span class="flag rem">too far apart</span>';
     if(f.rematch) fl += '<span class="flag rem">rematch</span>';
+    if(f.wide) fl += '<span class="flag gap">' + f.mmrGap + ' mmr apart</span>';
     var names = ((byId(m.a) ? byId(m.a).name : "") + " | " + (byId(m.b) ? byId(m.b).name : "")).toLowerCase();
     html += '<div class="match" data-names="' + esc(names) + '" data-label="Table ' + (idx+1) + '">' +
       '<div class="mh"><span class="tnum">' + (idx+1) + '</span><span class="tbl">Table</span>' +
@@ -1132,7 +1202,8 @@ function renderPairings(){
       : m.w === "d" ? "drawn"
       : (tal.a || tal.b) ? "in progress " + tal.a + "–" + tal.b
       : "no result yet";
-    var mlab = m.w ? marginLabel(m) : "";
+    var mi0 = matchMmr(viewRound, m);
+    var mlab = m.w ? marginLabel(m, mi0 && mi0.gm) : "";
     html += gh + '<div class="mfoot">' +
       '<span class="verdict' + (m.w ? " done" : "") + '">' + verdict +
       (mlab ? ' <span class="mmult">' + mlab + '</span>' : '') +
@@ -1159,6 +1230,8 @@ function renderPairings(){
 
   var a = [];
   if(illegal) a.push(['bad','<b>' + illegal + ' pairing' + (illegal>1?'s':'') + ' outside the rules.</b> A tier jump got forced in without the records to justify it. Check someone in or add a walk-in to fix the split.']);
+  if(rd.window > MMR_WINDOW) a.push(['warn','<b>Rating window widened to ' + rd.window + ' MMR.</b> Not everyone could be paired within ' + MMR_WINDOW +
+    ', so the window opened ' + WINDOW_STEP + ' points at a time until the whole floor fit. Tables past ' + MMR_WINDOW + ' are marked.']);
   if(rematches) a.push(['warn','<b>' + rematches + ' rematch' + (rematches>1?'es':'') + '.</b> Every legal fresh opponent was used up.']);
   if(mirrors) a.push(['warn','<b>' + mirrors + ' mirror matchup' + (mirrors>1?'s':'') + '.</b> Unavoidable with the decks checked in. Re-roll to try a different spread.']);
   if(bridged) a.push(['ok','<b>' + bridged + ' two-tier match' + (bridged>1?'es':'') + '.</b> Allowed because the records cancel the gap: the lower tier is up, the higher tier is down.']);
