@@ -343,6 +343,19 @@ td.name{white-space:normal;font-weight:500}
       <button class="btn sm" id="btn-none">Clear all</button>
     </div>
     <div class="card" style="padding:14px;margin-bottom:18px">
+      <h3 style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Signups</h3>
+      <p class="note" style="margin:0 0 10px;font-size:13px;color:var(--muted)">
+        Load the signup sheet before round 1. Everyone who signed up for the event keeps their MMR from the
+        Triton MMR sheet; anyone without one starts from their experience answer: never played 900, noob 1000,
+        amateur 1025, Nexus Nights 1050, PROGAMER 1100. Anyone marked checked in on the sheet is checked in here.
+      </p>
+      <div class="toolbar" style="margin:0">
+        <select id="su-event" aria-label="Event" hidden></select>
+        <button class="btn primary" id="btn-signups">Load signups</button>
+      </div>
+      <p class="note" id="su-note" style="margin:9px 0 0;font-size:12.5px;color:var(--muted)"></p>
+    </div>
+    <div class="card" style="padding:14px;margin-bottom:18px">
       <h3 style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Attendance paste</h3>
       <p class="note" style="margin:0 0 10px;font-size:13px;color:var(--muted)">
         This is the normal way to check people in. Select the name column on the attendance tab,
@@ -2198,6 +2211,8 @@ function runPaste(mode){
   el("paste-note").textContent = bits.join(" \u00b7 ");
   touch();
 }
+el("btn-signups").addEventListener("click", loadSignups);
+el("su-event").addEventListener("change", loadSignups);
 el("btn-paste").addEventListener("click", function(){ runPaste("replace"); });
 el("btn-paste-add").addEventListener("click", function(){ runPaste("add"); });
 
@@ -2289,7 +2304,8 @@ function persist(){
 var SHEET_ID = "1dbezzcgyLVsv_yz_8CfBQmcrI_2_u9AjZ5hjyAaqIRo";
 var cbSeq = 0;
 
-function readSheetTab(tab){
+function readSheetTab(tab, sheetId){
+  sheetId = sheetId || SHEET_ID;
   return new Promise(function(resolve, reject){
     var cb = "__rb_" + (++cbSeq) + "_" + Date.now();
     var tag = document.createElement("script");
@@ -2327,11 +2343,145 @@ function readSheetTab(tab){
       reject(new Error("Google refused the request for the \u201c" + tab +
         "\u201d tab. Share the sheet as Anyone with the link, Viewer, and check the tab name"));
     };
-    tag.src = "https://docs.google.com/spreadsheets/d/" + encodeURIComponent(SHEET_ID) +
+    tag.src = "https://docs.google.com/spreadsheets/d/" + encodeURIComponent(sheetId) +
       "/gviz/tq?tqx=out:json;responseHandler:" + cb +
       "&headers=1&sheet=" + encodeURIComponent(tab) + "&_=" + Date.now();
     document.head.appendChild(tag);
   });
+}
+
+/* ---------- signups ----------
+   Every event's form responses land on one tab of the signup sheet. Loading it
+   cross-references each signup with the Ratings tab: anyone with a rating keeps
+   it, anyone without one is seeded from how experienced they said they are.
+   Only the name, experience, wanted deck, event and check-in columns are read;
+   emails and Discord details never leave the sheet. */
+var SIGNUP_SHEET_ID = "1Tsoclk1mt6Yr8r2z9vT-j5KSBpxx-phHeVTj17B89ac", SIGNUP_TAB = "10/23";
+var signupRows = null;
+
+/* Form headers carry trailing spaces and long wording, so columns are found by
+   what they say rather than their exact text. */
+function colOf(rows, re){
+  var ks = rows.length ? Object.keys(rows[0]) : [];
+  for(var i=0;i<ks.length;i++){ if(re.test(ks[i])) return ks[i]; }
+  return null;
+}
+var MONTHS = ["january","february","march","april","may","june","july","august","september","october","november","december"];
+/* "Friday, October 23rd" -> "2026-10-23", in the year of the event being run. */
+function signupDate(txt){
+  var m = /([a-z]+)\s+(\d{1,2})/i.exec(String(txt || "").replace(/^[a-z]+,\s*/i, ""));
+  if(!m) return "";
+  var mi = MONTHS.indexOf(m[1].toLowerCase());
+  if(mi < 0) return "";
+  var y = String(state.event.date || todayISO()).slice(0, 4);
+  return y + "-" + String(mi + 1).padStart(2, "0") + "-" + String(+m[2]).padStart(2, "0");
+}
+
+/* The experience answer, as a skill level and, where the level scale tops out,
+   a starting rating. Level 4 is reserved for the judge, so PROGAMER is an
+   amateur by category who starts a level higher, at 1100. */
+function levelFor(answer, current){
+  var a = String(answer || "").toLowerCase();
+  if(/triton nexus nights before|in the system/.test(a)) return {tier: current === undefined ? 3 : current, known:true};
+  if(/progamer|competitive/.test(a)) return {tier:3, seed:skillSeed(4)};
+  if(/nexus/.test(a))   return {tier:3};
+  if(/amateur/.test(a)) return {tier:2.5};
+  if(/noob/.test(a))    return {tier:2};
+  if(/never/.test(a))   return {tier:0};
+  return null;
+}
+function deckKey(s){ return String(s || "").toLowerCase().replace(/[^a-z]/g, ""); }
+
+function signupEvents(rows){
+  var c = colOf(rows, /which event/i), seen = {}, out = [];
+  rows.forEach(function(r){
+    var d = signupDate(r[c]);
+    if(d && !seen[d]){ seen[d] = 1; out.push(d); }
+  });
+  return out.sort();
+}
+
+function applySignups(rows, ratings, iso){
+  var cName = colOf(rows, /what is your name/i), cExp = colOf(rows, /experienced/i),
+      cEv = colOf(rows, /which event/i), cDeck = colOf(rows, /which deck/i), cIn = colOf(rows, /checked in/i);
+  var rate = {};
+  ratings.forEach(function(r){
+    var n = String(r["Player"] || "").trim().toLowerCase(), v = Number(r["Rating"]);
+    if(n && isFinite(v) && v > 0) rate[n] = v;
+  });
+  /* One line per person: the latest response wins when someone signs up twice. */
+  var latest = {}, order = [];
+  rows.forEach(function(r){
+    var nm = String(r[cName] || "").trim();
+    if(!nm || signupDate(r[cEv]) !== iso) return;
+    var k = nm.toLowerCase();
+    if(!(k in latest)) order.push(k);
+    latest[k] = r;
+  });
+  var out = {total:0, rated:0, seeded:0, added:[], checked:0, missing:[]};
+  state.carry = state.carry || {};
+  order.forEach(function(k){
+    var r = latest[k], nm = String(r[cName]).trim();
+    var p = findByName(nm);
+    var lvl = levelFor(r[cExp], p ? p.tier : undefined);
+    if(!p){
+      var id = slug(nm);
+      while(byId(id)) id = id + "-2";
+      p = {id:id, name:nm, deck:"", tier: lvl ? lvl.tier : 0, judge:false};
+      state.roster.push(p);
+      out.added.push(nm);
+    }
+    out.total++;
+    var have = rate[nm.toLowerCase()] || rate[p.name.toLowerCase()];
+    if(have){
+      state.carry[p.id] = Math.round(have * 10) / 10;
+      out.rated++;
+    } else {
+      if(lvl){ p.tier = lvl.tier; p.judge = false; }
+      if(lvl && lvl.seed) state.carry[p.id] = lvl.seed;
+      else delete state.carry[p.id];
+      if(lvl && lvl.known) out.missing.push(nm);
+      out.seeded++;
+    }
+    if(!p.deck && cDeck && r[cDeck]) p.deck = deckKey(r[cDeck]);
+    if(cIn && String(r[cIn] || "").trim() && state.present.indexOf(p.id) < 0){ state.present.push(p.id); out.checked++; }
+  });
+  autoJudge();
+  return out;
+}
+
+async function loadSignups(){
+  var note = el("su-note");
+  note.textContent = "Reading the signup sheet and the Ratings tab…";
+  try{
+    var got = await Promise.all([readSheetTab(SIGNUP_TAB, SIGNUP_SHEET_ID), readSheetTab("Ratings")]);
+    var rows = got[0];
+    /* Google quietly serves the first tab when the name does not match, so make
+       sure this is really the form responses. */
+    if(!colOf(rows, /what is your name/i)) throw new Error("no “" + SIGNUP_TAB + "” tab of form responses was found");
+    signupRows = rows;
+    var dates = signupEvents(rows), pick = el("su-event"), keep = pick.value;
+    pick.innerHTML = dates.map(function(d){ return '<option value="' + d + '">' + esc(prettyDate(d)) + '</option>'; }).join("");
+    pick.hidden = !dates.length;
+    /* Tonight if it has signups, otherwise the next event coming up. */
+    var today = state.event.date || todayISO();
+    var want = dates.indexOf(keep) >= 0 ? keep
+      : dates.indexOf(today) >= 0 ? today
+      : (dates.filter(function(d){ return d >= today; })[0] || dates[dates.length - 1]);
+    if(!want){ note.textContent = "The signup tab has no event dates yet."; return; }
+    pick.value = want;
+    var r = applySignups(rows, got[1], want);
+    var bits = [r.total + " signed up for " + prettyDate(want),
+                r.rated + " with an MMR on the sheet",
+                r.seeded + " seeded from their experience answer"];
+    if(r.added.length) bits.push("new to the roster: " + r.added.join(", "));
+    if(r.checked) bits.push(r.checked + " checked in from the sheet");
+    if(r.missing.length) bits.push("said they have played here but have no MMR on the sheet, seeded as Nexus Nights: " + r.missing.join(", "));
+    touch();
+    note.textContent = bits.join(" · ");
+  }catch(e){
+    note.textContent = "Could not load signups: " + e.message + ". Share the signup sheet as Anyone with the link, Viewer.";
+  }
 }
 
 function apiBase(){ return (state.gsUrl || "").trim(); }
