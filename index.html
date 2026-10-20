@@ -347,8 +347,8 @@ td.name{white-space:normal;font-weight:500}
       <p class="note" style="margin:0 0 10px;font-size:13px;color:var(--muted)">
         Load the signup sheet before round 1. Everyone who signed up for the event keeps their MMR from the
         Triton MMR sheet; anyone without one starts from their experience answer: never played 900, noob 1000,
-        amateur 1025, Nexus Nights 1050, PROGAMER 1100. Anyone the Discord bot has checked in for the event is
-        checked in here; press Load checked-in again as more people arrive. Nobody is ever checked out by it.
+        amateur 1025, Nexus Nights 1050, PROGAMER 1100. Check-in comes from the Discord bot's verified
+        Check-in Log; press Load checked-in again as more people arrive. Nobody is ever checked out by it.
       </p>
       <div class="toolbar" style="margin:0">
         <select id="su-event" aria-label="Event" hidden></select>
@@ -357,12 +357,11 @@ td.name{white-space:normal;font-weight:500}
       </div>
       <p class="note" id="su-note" style="margin:9px 0 0;font-size:12.5px;color:var(--muted)"></p>
     </div>
-    <div class="card" style="padding:14px;margin-bottom:18px">
-      <h3 style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Attendance paste</h3>
-      <p class="note" style="margin:0 0 10px;font-size:13px;color:var(--muted)">
-        This is the normal way to check people in. Select the name column on the attendance tab,
-        copy, paste here and set the floor. Timestamps, headers and &ldquo;Last, First&rdquo; order are all handled.
-        Paste the whole tab again whenever more people arrive.
+    <details class="card" style="padding:14px;margin-bottom:18px">
+      <summary style="cursor:pointer;font-family:var(--display);font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase">Manual paste (only if the bot is down)</summary>
+      <p class="note" style="margin:10px 0 10px;font-size:13px;color:var(--muted)">
+        Check-in normally comes from the Discord bot. If it is not working, paste a column of names here instead.
+        Timestamps, headers and &ldquo;Last, First&rdquo; order are all handled.
       </p>
       <label class="fld" for="paste">Names from the attendance tab
         <textarea id="paste" rows="5" placeholder="10/10/2026 18:04:21&#9;Samuel Kuang&#10;10/10/2026 18:05:02&#9;Chiang, Jun-Ting&#10;Jayleen Shang"></textarea>
@@ -375,7 +374,7 @@ td.name{white-space:normal;font-weight:500}
         </label>
       </div>
       <p class="note" id="paste-note" style="margin:9px 0 0;font-size:12.5px;color:var(--muted)"></p>
-    </div>
+    </details>
 
     <div class="card" style="padding:14px">
       <h3 style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Judge</h3>
@@ -2410,7 +2409,7 @@ function signupEvents(rows){
 
 function applySignups(rows, ratings, iso){
   var cName = colOf(rows, /what is your name/i), cExp = colOf(rows, /experienced/i),
-      cEv = colOf(rows, /which event/i), cDeck = colOf(rows, /which deck/i), cIn = colOf(rows, /checked in/i);
+      cEv = colOf(rows, /which event/i), cDeck = colOf(rows, /which deck/i);
   var rate = {};
   ratings.forEach(function(r){
     var n = String(r["Player"] || "").trim().toLowerCase(), v = Number(r["Rating"]);
@@ -2451,24 +2450,39 @@ function applySignups(rows, ratings, iso){
       out.seeded++;
     }
     if(!p.deck && cDeck && r[cDeck]) p.deck = deckKey(r[cDeck]);
-    if(cIn && String(r[cIn] || "").trim() && state.present.indexOf(p.id) < 0){ state.present.push(p.id); out.checked++; }
   });
   autoJudge();
   return out;
 }
 
-/* The Discord bot logs each check-in on its own tab: one row per check-in, with
-   the event date and the name it matched. Everyone logged for this event is
-   checked in. Someone logged who never signed up is added as a walk-in at never
-   played, so they can still be paired; their level can be set on the Roster tab. */
-function applyCheckinLog(log, iso){
+/* Check-in comes from the Discord bot's Check-in Log alone: one row per verified
+   check-in. Each row is tied back to its form response, by the signup row the bot
+   recorded when that row's Discord username still matches, otherwise by Discord
+   tag, otherwise by name. The response says which event the person signed up for,
+   so someone checking in a day early still lands on the right night; the log's own
+   date counts too. Anyone logged without a signup joins as a walk-in at never
+   played, and their level can be set on the Roster tab. */
+function applyCheckinLog(log, iso, rows){
   var out = {checked:0, added:[]};
   if(!log) return out;
-  var cName = colOf(log, /^name$/i), cDate = colOf(log, /event date/i);
-  if(!cName || !cDate) return out;
+  rows = rows || [];
+  var cName = colOf(log, /^name$/i), cDate = colOf(log, /event date/i),
+      cTag = colOf(log, /discord tag/i), cRow = colOf(log, /signup row/i);
+  var fName = colOf(rows, /what is your name/i), fEv = colOf(rows, /which event/i), fTag = colOf(rows, /discord username/i);
+  var tagKey = function(s){ return String(s || "").trim().toLowerCase(); };
   log.forEach(function(r){
-    var nm = String(r[cName] || "").trim();
-    if(!nm || asISO(r[cDate]) !== iso) return;
+    var tag = tagKey(cTag && r[cTag]);
+    /* Sheet row 2 is the first response. */
+    var su = cRow ? rows[Number(r[cRow]) - 2] : null;
+    if(su && tag && fTag && tagKey(su[fTag]) && tagKey(su[fTag]) !== tag) su = null;
+    if(!su && tag && fTag){
+      var byTag = rows.filter(function(x){ return tagKey(x[fTag]) === tag; });
+      su = byTag.filter(function(x){ return signupDate(x[fEv]) === iso; })[0] || byTag[byTag.length - 1] || null;
+    }
+    var nm = String((su && su[fName]) || r[cName] || "").trim();
+    if(!nm) return;
+    var forEvent = (su && signupDate(su[fEv]) === iso) || asISO(r[cDate]) === iso;
+    if(!forEvent) return;
     var p = findByName(nm);
     if(!p){
       var id = slug(nm);
@@ -2521,8 +2535,8 @@ async function loadSignups(checkinsOnly){
     /* Loading an event's signups makes it the event on the board, until a round is played. */
     if(!state.rounds.length) state.event.date = want;
     var r = applySignups(rows, got[1], want);
-    var c = applyCheckinLog(log, want);
-    var checked = r.checked + c.checked;
+    var c = applyCheckinLog(log, want, rows);
+    var checked = c.checked;
     var bits = checkinsOnly
       ? [checked ? checked + " newly checked in for " + prettyDate(want) : "Nobody new checked in for " + prettyDate(want),
          present().length + " on the floor"]
