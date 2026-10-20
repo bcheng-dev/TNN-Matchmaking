@@ -425,7 +425,7 @@ td.name{white-space:normal;font-weight:500}
         <li>The change is <span class="formula">K &times; margin &times; (result &minus; E)</span>. Beating someone rated above you pays more than beating someone below, and the loser pays exactly what the winner earns, so the pool total stays flat.</li>
         <li>K is deliberately conservative: <b>28</b> for a player's first three matches, then <b>20</b>. An even matchup moves 12 to 18 points, while a 200-point upset win on a sweep pays about <b>+27</b>. Nobody's rating lurches on one result.</li>
         <li>Margin reads the best of three and cuts both ways. A <b>2&ndash;0 sweep</b> was decisive, so it pays <b>1.25&times;</b>. A <b>2&ndash;1</b> could have gone either way, so it counts <b>0.75&times;</b>: the winner gains less and the loser drops less. Taking a game off the person who beats you genuinely softens the loss. Both players always use the same multiplier, so the pool stays flat.</li>
-        <li>A <b>wide gap</b> counts for less. Up to 200 apart a match moves ratings normally; past that it eases down to <b>half weight at 400 apart</b>, since a lopsided match tells you little about either player. Both players get the same reduction, so the pool stays flat.</li>
+        <li>A <b>wide gap</b> leans against the higher-rated player. Up to 200 apart a match moves ratings normally. Past that, the favorite <b>wins less and loses more</b>: a win is scaled down to <b>half at 400 apart</b>, and an upset loss is scaled up to <b>1.5&times;</b>. The underdog mirrors it, losing less and gaining more, so what one side gains the other gives up. A draw counts as the favorite falling short.</li>
         <li>Everyone in a round moves off the ratings they started that round with, so results inside one round never cascade into each other.</li>
         <li>A <b>carry-in</b> pasted from the spreadsheet replaces the skill seed for that player, so week two starts where week one finished. Anyone without a carry-in still opens on their skill seed, which is what a first-timer should get.</li>
         <li><b>Seed</b> is where that player started, so <b>MMR</b> minus <b>Seed</b> is what they have earned tonight. The green and red figures beside MMR show exactly that.</li>
@@ -659,22 +659,26 @@ function marginMult(m){
   if(diff === 1 && played >= 3) return CLOSE_MULT; /* 2-1, could have gone either way */
   return 1;                                        /* a draw, or games not logged */
 }
-/* A lopsided match says little about either player, so it moves both less: full
-   weight up to 200 apart, easing to half weight at 400 apart and beyond. Close
-   ratings keep the normal swing. Both sides use the same multiplier, so the pool
-   stays flat. */
+/* A lopsided match leans against the higher-rated player. Up to 200 apart it
+   moves ratings normally. Past that, the favorite wins less and loses more:
+   a favorite's win is scaled down, easing to half at 400 apart, and an upset is
+   scaled up by the same amount, to 1.5x at 400. The underdog mirrors it, losing
+   less and gaining more, so whatever one side gains the other gives up. A draw
+   counts as the favorite falling short. */
 var GAP_SOFT = 200, GAP_HARD = 400, GAP_FLOOR = 0.5;
-function gapMult(ra, rb){
+function gapMult(ra, rb, sa, ea){
   var d = Math.abs(ra - rb);
   if(d <= GAP_SOFT) return 1;
-  return Math.max(GAP_FLOOR, 1 - (1 - GAP_FLOOR) * (d - GAP_SOFT) / (GAP_HARD - GAP_SOFT));
+  var g = Math.max(GAP_FLOOR, 1 - (1 - GAP_FLOOR) * (d - GAP_SOFT) / (GAP_HARD - GAP_SOFT));
+  var favGains = ra >= rb ? (sa - ea) > 0 : (sa - ea) < 0;
+  return favGains ? g : 2 - g;
 }
 function marginLabel(m, gm){
   var mm = marginMult(m);
   var s = mm === SWEEP_MULT ? "sweep \u00d7" + SWEEP_MULT
     : mm === CLOSE_MULT ? "close \u00d7" + CLOSE_MULT
     : "";
-  if(gm && gm < 1) s += (s ? " \u00b7 " : "") + "wide gap \u00d7" + (Math.round(gm * 100) / 100);
+  if(gm && gm !== 1) s += (s ? " \u00b7 " : "") + (gm < 1 ? "favorite won \u00d7" : "upset \u00d7") + (Math.round(gm * 100) / 100);
   return s;
 }
 function r1(x){ return Math.round(x * 10) / 10; }
@@ -698,7 +702,7 @@ function mmrTable(uptoIdx){
       if(!A || !B) return;
       var ea = eloExpected(A.r, B.r);
       var sa = m.w === "a" ? 1 : m.w === "b" ? 0 : 0.5;
-      var mm = marginMult(m) * gapMult(A.r, B.r);
+      var mm = marginMult(m) * gapMult(A.r, B.r, sa, ea);
       ups.push({id:m.a, d:kFor(A.n) * mm * (sa - ea),       opp:B.r, s:sa});
       ups.push({id:m.b, d:kFor(B.n) * mm * ((1-sa) - (1-ea)), opp:A.r, s:1-sa});
     });
@@ -736,11 +740,11 @@ function matchMmr(roundIdx, m){
   var A = pre[m.a], B = pre[m.b];
   if(!A || !B) return null;
   var ea = eloExpected(A.r, B.r);
-  var gm = gapMult(A.r, B.r);
-  var mm = marginMult(m) * gm;
-  var out = {ra:A.r, rb:B.r, ea:ea, eb:1-ea, da:null, db:null, gm:gm};
+  var out = {ra:A.r, rb:B.r, ea:ea, eb:1-ea, da:null, db:null, gm:1};
   if(m.w){
     var sa = m.w === "a" ? 1 : m.w === "b" ? 0 : 0.5;
+    var gm = out.gm = gapMult(A.r, B.r, sa, ea);
+    var mm = marginMult(m) * gm;
     out.da = r1(kFor(A.n) * mm * (sa - ea));
     out.db = r1(kFor(B.n) * mm * ((1-sa) - (1-ea)));
   }
