@@ -2412,7 +2412,7 @@ function signupEvents(rows){
 }
 
 function applySignups(rows, ratings, iso){
-  var cName = colOf(rows, /what is your name/i), cExp = colOf(rows, /experienced/i),
+  var cName = colOf(rows, /what is your (full )?name/i), cExp = colOf(rows, /experienced/i),
       cEv = colOf(rows, /which event/i), cDeck = colOf(rows, /which deck/i);
   var rate = {};
   ratings.forEach(function(r){
@@ -2472,7 +2472,7 @@ function applyCheckinLog(log, iso, rows){
   rows = rows || [];
   var cName = colOf(log, /^name$/i), cDate = colOf(log, /event date/i),
       cTag = colOf(log, /discord tag/i), cRow = colOf(log, /signup row/i);
-  var fName = colOf(rows, /what is your name/i), fEv = colOf(rows, /which event/i), fTag = colOf(rows, /discord username/i);
+  var fName = colOf(rows, /what is your (full )?name/i), fEv = colOf(rows, /which event/i), fTag = colOf(rows, /discord username/i);
   var tagKey = function(s){ return String(s || "").trim().toLowerCase(); };
   log.forEach(function(r){
     var tag = tagKey(cTag && r[cTag]);
@@ -2506,7 +2506,7 @@ function applyCheckinLog(log, iso, rows){
 function applyCheckedBoxes(rows, iso){
   var out = {checked:0, added:[], found:false};
   rows = rows || [];
-  var cBox = colOf(rows, /^\s*checked[\s-]*in\s*$/i), cName = colOf(rows, /what is your name/i),
+  var cBox = colOf(rows, /^\s*checked[\s-]*in\s*$/i), cName = colOf(rows, /what is your (full )?name/i),
       cEv = colOf(rows, /which event/i);
   if(!cBox || !cName) return out;
   out.found = true;
@@ -2529,12 +2529,25 @@ function applyCheckedBoxes(rows, iso){
   return out;
 }
 
+/* The form has had more than one "Which event" question, so a response's date can
+   sit in either column. Fold them into the first one, which is the column the
+   rest of the code reads. */
+function mergeEventCols(rows){
+  var ks = rows.length ? Object.keys(rows[0]).filter(function(k){ return /which event/i.test(k); }) : [];
+  if(ks.length < 2) return rows;
+  rows.forEach(function(r){
+    if(signupDate(r[ks[0]])) return;
+    for(var i=1;i<ks.length;i++){ if(signupDate(r[ks[i]])){ r[ks[0]] = r[ks[i]]; break; } }
+  });
+  return rows;
+}
+
 /* Reads the first signup tab that holds form responses. Google serves the first
    tab when a name does not match, so each one is checked for the name column. */
 async function readSignupTab(){
   for(var i=0;i<SIGNUP_TABS.length;i++){
     var rows = await readSheetTab(SIGNUP_TABS[i], SIGNUP_SHEET_ID).catch(function(){ return null; });
-    if(rows && colOf(rows, /what is your name/i)){ SIGNUP_TAB = SIGNUP_TABS[i]; return rows; }
+    if(rows && colOf(rows, /what is your (full )?name/i)){ SIGNUP_TAB = SIGNUP_TABS[i]; return mergeEventCols(rows); }
   }
   throw new Error("no “" + SIGNUP_TABS.join("” or “") + "” tab of form responses was found");
 }
@@ -2563,7 +2576,7 @@ async function loadSignups(checkinsOnly){
     var log = got[2] && colOf(got[2], /event date/i) ? got[2] : null;
     /* Google quietly serves the first tab when the name does not match, so make
        sure this is really the form responses. */
-    if(!colOf(rows, /what is your name/i)) throw new Error("no “" + SIGNUP_TAB + "” tab of form responses was found");
+    if(!colOf(rows, /what is your (full )?name/i)) throw new Error("no “" + SIGNUP_TAB + "” tab of form responses was found");
     signupRows = rows;
     var dates = signupEvents(rows), pick = el("su-event"), keep = pick.value;
     pick.innerHTML = dates.map(function(d){ return '<option value="' + d + '">' + esc(prettyDate(d)) + '</option>'; }).join("");
