@@ -348,7 +348,7 @@ td.name{white-space:normal;font-weight:500}
         Load the signup sheet before round 1. Everyone who signed up for the event keeps their MMR from the
         Triton MMR sheet; anyone without one starts from their experience answer: never played 900, noob 1000,
         amateur 1025, Nexus Nights 1050, PROGAMER 1100. Check-in comes from the Discord bot's verified
-        Check-in Log; press Load checked-in again as more people arrive. Nobody is ever checked out by it.
+        Check-in Log and from ticked boxes in the &ldquo;Checked in&rdquo; column of the TNN Signups tab; press Load checked-in again as more people arrive. Nobody is ever checked out by it.
       </p>
       <div class="toolbar" style="margin:0">
         <select id="su-event" aria-label="Event" hidden></select>
@@ -2363,7 +2363,9 @@ function readSheetTab(tab, sheetId){
    it, anyone without one is seeded from how experienced they said they are.
    Only the name, experience, wanted deck, event and check-in columns are read;
    emails and Discord details never leave the sheet. */
-var SIGNUP_SHEET_ID = "1Tsoclk1mt6Yr8r2z9vT-j5KSBpxx-phHeVTj17B89ac", SIGNUP_TAB = "10/23",
+/* "TNN Signups" first; "10/23" is the older per-event tab, kept as a fallback. */
+var SIGNUP_SHEET_ID = "1Tsoclk1mt6Yr8r2z9vT-j5KSBpxx-phHeVTj17B89ac", SIGNUP_TABS = ["TNN Signups", "10/23"],
+    SIGNUP_TAB = SIGNUP_TABS[0],
     CHECKIN_TAB = "Check-in Log";
 var signupRows = null;
 
@@ -2498,6 +2500,45 @@ function applyCheckinLog(log, iso, rows){
   autoJudge();
   return out;
 }
+/* Manual attendance: the "Checked in" checkbox column on the signup tab. A ticked
+   box checks in the name on that row, if the row is for this event. Google sends a
+   ticked box as true or "TRUE". */
+function applyCheckedBoxes(rows, iso){
+  var out = {checked:0, added:[], found:false};
+  rows = rows || [];
+  var cBox = colOf(rows, /^\s*checked[\s-]*in\s*$/i), cName = colOf(rows, /what is your name/i),
+      cEv = colOf(rows, /which event/i);
+  if(!cBox || !cName) return out;
+  out.found = true;
+  rows.forEach(function(r){
+    var v = r[cBox];
+    if(!(v === true || /^true$/i.test(String(v).trim()))) return;
+    var nm = String(r[cName] || "").trim();
+    if(!nm || signupDate(r[cEv]) !== iso) return;
+    var p = findByName(nm);
+    if(!p){
+      var id = slug(nm);
+      while(byId(id)) id = id + "-2";
+      p = {id:id, name:nm, deck:"", tier:0, judge:false};
+      state.roster.push(p);
+      out.added.push(nm);
+    }
+    if(state.present.indexOf(p.id) < 0){ state.present.push(p.id); out.checked++; }
+  });
+  autoJudge();
+  return out;
+}
+
+/* Reads the first signup tab that holds form responses. Google serves the first
+   tab when a name does not match, so each one is checked for the name column. */
+async function readSignupTab(){
+  for(var i=0;i<SIGNUP_TABS.length;i++){
+    var rows = await readSheetTab(SIGNUP_TABS[i], SIGNUP_SHEET_ID).catch(function(){ return null; });
+    if(rows && colOf(rows, /what is your name/i)){ SIGNUP_TAB = SIGNUP_TABS[i]; return rows; }
+  }
+  throw new Error("no “" + SIGNUP_TABS.join("” or “") + "” tab of form responses was found");
+}
+
 /* Sheet dates arrive as "2026-10-23", "10/23/2026" or Google's "Date(2026,9,23)". */
 function asISO(v){
   var s = String(v || "").trim(), m;
@@ -2511,7 +2552,7 @@ async function loadSignups(checkinsOnly){
   note.textContent = checkinsOnly ? "Reading the check-in log…" : "Reading the signup sheet and the Ratings tab…";
   try{
     var got = await Promise.all([
-      readSheetTab(SIGNUP_TAB, SIGNUP_SHEET_ID),
+      readSignupTab(),
       readSheetTab("Ratings"),
       /* A missing log tab is not an error; the signups still load. */
       readSheetTab(CHECKIN_TAB, SIGNUP_SHEET_ID).catch(function(){ return null; })
@@ -2538,7 +2579,8 @@ async function loadSignups(checkinsOnly){
     if(!state.rounds.length) state.event.date = want;
     var r = applySignups(rows, got[1], want);
     var c = applyCheckinLog(log, want, rows);
-    var checked = c.checked;
+    var b = applyCheckedBoxes(rows, want);
+    var checked = c.checked + b.checked;
     var bits = checkinsOnly
       ? [checked ? checked + " newly checked in for " + prettyDate(want) : "Nobody new checked in for " + prettyDate(want),
          present().length + " on the floor"]
@@ -2547,9 +2589,10 @@ async function loadSignups(checkinsOnly){
          r.seeded + " seeded from their experience answer"];
     if(!checkinsOnly && r.added.length) bits.push("new to the roster: " + r.added.join(", "));
     if(!checkinsOnly && checked) bits.push(checked + " checked in from the sheet");
+    if(b.added.length) bits.push("ticked Checked in, new to the roster: " + b.added.join(", "));
     if(c.added.length) bits.push("checked in without a signup, added at never played: " + c.added.join(", "));
     if(r.missing.length) bits.push("said they have played here but have no MMR on the sheet, seeded as Nexus Nights: " + r.missing.join(", "));
-    if(!log) bits.push("no “" + CHECKIN_TAB + "” tab found");
+    if(!log && !b.found) bits.push("no “" + CHECKIN_TAB + "” tab and no “Checked in” column found");
     touch();
     note.textContent = bits.join(" · ");
   }catch(e){
