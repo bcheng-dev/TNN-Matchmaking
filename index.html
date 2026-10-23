@@ -2559,6 +2559,25 @@ function asISO(v){
   return s.slice(0, 10);
 }
 
+/* Once a night has been synced, the Ratings tab already holds each player's
+   rating AFTER tonight. Starting from that again would count tonight twice, so
+   anyone with an Event Log row for this date starts from that row's Start MMR. */
+function tonightStarts(ratings, log, iso){
+  if(!log || !log.length || !iso) return ratings;
+  var start = {};
+  log.forEach(function(r){
+    if(asISO(r["Date"]) !== iso) return;
+    var n = String(r["Player"] || "").trim().toLowerCase(), v = Number(r["Start MMR"]);
+    if(n && isFinite(v) && v > 0) start[n] = v;
+  });
+  return ratings.map(function(r){
+    var n = String(r["Player"] || "").trim().toLowerCase();
+    if(!(n in start)) return r;
+    var o = Object.assign({}, r); o["Rating"] = start[n]; return o;
+  });
+}
+function readEventLog(){ return readSheetTab("Event Log").catch(function(){ return []; }); }
+
 async function loadSignups(checkinsOnly){
   var note = el("su-note");
   note.textContent = checkinsOnly ? "Reading the check-in log…" : "Reading the signup sheet and the Ratings tab…";
@@ -2567,7 +2586,8 @@ async function loadSignups(checkinsOnly){
       readSignupTab(),
       readSheetTab("Ratings"),
       /* A missing log tab is not an error; the signups still load. */
-      readSheetTab(CHECKIN_TAB, SIGNUP_SHEET_ID).catch(function(){ return null; })
+      readSheetTab(CHECKIN_TAB, SIGNUP_SHEET_ID).catch(function(){ return null; }),
+      readEventLog()
     ]);
     var rows = got[0];
     /* Google serves the first tab when a name does not match, so a log without
@@ -2589,7 +2609,7 @@ async function loadSignups(checkinsOnly){
     pick.value = want;
     /* Loading an event's signups makes it the event on the board, until a round is played. */
     if(!state.rounds.length) state.event.date = want;
-    var r = applySignups(rows, got[1], want);
+    var r = applySignups(rows, tonightStarts(got[1], got[3], state.event.date || want), want);
     var c = applyCheckinLog(log, want, rows);
     var b = applyCheckedBoxes(rows, want);
     var checked = c.checked + b.checked;
@@ -2650,7 +2670,8 @@ el("btn-ping").addEventListener("click", async function(){
 el("btn-pull").addEventListener("click", async function(){
   say("Reading the Ratings tab…");
   try{
-    var rows = await readSheetTab("Ratings");
+    var both = await Promise.all([readSheetTab("Ratings"), readEventLog()]);
+    var rows = tonightStarts(both[0], both[1], state.event.date || todayISO());
     state.carry = state.carry || {};
     var hit = 0, miss = [], skipped = 0;
     rows.forEach(function(r){
@@ -2694,14 +2715,17 @@ function scheduleSync(delay){
 }
 
 async function syncNow(manual){
+  /* The status line lives on the MMR tab, so a press of the header button also
+     gets a toast it can actually be seen from. */
+  var tell = function(msg){ say(msg); if(manual) toast(msg); };
   var base = apiBase();
-  if(!base){ if(manual) say("Add the Apps Script URL first."); return; }
+  if(!base){ if(manual) tell("Add the Apps Script URL on the MMR tab first."); return; }
   var pay = uploadPayload();
   var done = pay.m.filter(function(x){ return x[4] !== "bye"; }).length;
-  if(!done){ if(manual) say("No reported results yet, so there is nothing to sync."); return; }
+  if(!done){ if(manual) tell("No reported results yet, so there is nothing to sync."); return; }
   var body = JSON.stringify(pay);
   if(!manual && body === sync.sent) return;   /* nothing changed since the last sync */
-  if(sync.busy){ sync.again = true; return; }
+  if(sync.busy){ sync.again = true; if(manual) toast("A sync is already running; this one will follow it."); return; }
   sync.busy = true; syncBadge();
   say("Syncing " + pay.p.length + " players and " + done + " matches…");
   try{
@@ -2725,7 +2749,7 @@ async function syncNow(manual){
     if(manual) toast("Sheet updated.");
   }catch(e){
     sync.failed = true;
-    say("Sync failed: " + e.message + ". It will retry by itself; the copy buttons below still work by hand.");
+    tell("Sync failed: " + e.message + ". It will retry by itself; the copy buttons on the MMR tab still work by hand.");
     scheduleSync(SYNC_RETRY);
   }finally{
     sync.busy = false;
