@@ -273,7 +273,7 @@ td.name{white-space:normal;font-weight:500}
     </div>
     <span class="dirty" id="dirty" hidden>Unsaved</span>
     <button class="btn" id="btn-pull">Pull ratings</button>
-    <button class="btn" id="btn-publish" title="Show the current round on the public pairings page">Publish pairings</button>
+    <button class="btn" id="btn-publish" title="Show the current round on the public pairings page and sync the event to the sheet">Publish pairings</button>
     <button class="btn primary" id="btn-push">Sync event to sheet</button>
   </div>
   <nav class="tabs" role="tablist">
@@ -2863,6 +2863,10 @@ el("btn-publish").addEventListener("click", async function(){
     state.published = {body: JSON.stringify(pay), at: out.published || new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})};
     persist();
     toast("Round " + pay.r + " published. Players see it at " + PUBLIC_PAGE.replace(/^https:\/\//, ""));
+    /* Publishing also syncs the event, once there is a result to sync. The
+       sync button on its own never publishes. */
+    var hasResult = state.rounds.some(function(rd){ return rd.matches.some(function(m){ return m.w; }); });
+    if(hasResult) syncNow(true);
   }catch(e){
     toast("Not published: " + e.message + ".");
   }finally{
