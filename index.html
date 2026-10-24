@@ -327,7 +327,7 @@ td.name{white-space:normal;font-weight:500}
         <li>Fewest mirror matchups. Two players on the same expected deck are only paired when nothing else works.</li>
         <li>No rematches while a legal fresh opponent exists.</li>
         <li>Odd attendance gives one bye, and it goes to an amateur with the lowest record, never twice to the same person. Never-played and noob players are not sat out while any amateur is available. A bye scores nothing, so the sit-out neither helps nor hurts. Where a category has to be crossed to balance the field, the volunteers listed on the Roster tab go first.</li>
-        <li>Check in &ldquo;Judge&rdquo; at level 4 instead of handing out a bye, and the judge gets sent at a level 3 first. Whoever is judging plays under that one placeholder name. Judges never take the bye themselves and stay out of the prizing standings.</li>
+        <li>Check in &ldquo;Judge&rdquo; at level 4 instead of handing out a bye, and the judge plays whoever is left over, at any level. Whoever is judging plays under that one placeholder name. Judges never take the bye themselves and stay out of the prizing standings.</li>
         <li>Any of this can be overridden. Force a table with the two pickers above the board and it is locked, so a re-roll leaves it alone. Re-roll only reshuffles tables that are neither locked nor already reported, and settled tables keep their numbers.</li>
         <li>Someone arriving late is checked in as normal and shows up as waiting for a table. Pairing them in adds tables without touching anything already on the floor; an odd one out is paired against whoever had the bye.</li>
         <li>Matches are best of three. Record G1, G2 and G3 and the match result follows the games; pick a side directly to set it by hand. A 2&ndash;0 sweep moves MMR 1.25&times;, a 2&ndash;1 only 0.75&times;, so winning a game off the player who beats you softens the loss.</li>
@@ -666,7 +666,10 @@ function carryOf(id){
   var c = state.carry && state.carry[id];
   return (typeof c === "number" && isFinite(c)) ? c : null;
 }
+/* The judge is a fixed 900: playing them moves your rating, never theirs. */
+var JUDGE_MMR = 900;
 function seedFor(id){
+  if(isJudge(id)) return JUDGE_MMR;
   var c = carryOf(id);
   return c === null ? skillSeed(tierOf(id)) : c;
 }
@@ -709,8 +712,8 @@ function mmrTable(uptoIdx){
   if(_mmrCache[limit]) return _mmrCache[limit];
   var t = {};
   state.roster.forEach(function(p){
-    var carried = carryOf(p.id);
-    var seed = carried === null ? skillSeed(p.tier) : carried;
+    var carried = p.judge ? null : carryOf(p.id);
+    var seed = p.judge ? JUDGE_MMR : carried === null ? skillSeed(p.tier) : carried;
     t[p.id] = {seed:seed, carried:carried !== null, r:seed, peak:seed, low:seed,
                n:0, w:0, l:0, d:0, oppSum:0, last:0, hist:[seed]};
   });
@@ -723,8 +726,8 @@ function mmrTable(uptoIdx){
       var ea = eloExpected(A.r, B.r);
       var sa = m.w === "a" ? 1 : m.w === "b" ? 0 : 0.5;
       var mm = marginMult(m) * gapMult(A.r, B.r, sa, ea);
-      ups.push({id:m.a, d:kFor(A.n) * mm * (sa - ea),       opp:B.r, s:sa});
-      ups.push({id:m.b, d:kFor(B.n) * mm * ((1-sa) - (1-ea)), opp:A.r, s:1-sa});
+      ups.push({id:m.a, d:isJudge(m.a) ? 0 : kFor(A.n) * mm * (sa - ea),       opp:B.r, s:sa});
+      ups.push({id:m.b, d:isJudge(m.b) ? 0 : kFor(B.n) * mm * ((1-sa) - (1-ea)), opp:A.r, s:1-sa});
     });
     ups.forEach(function(u){
       var e = t[u.id];
@@ -765,8 +768,8 @@ function matchMmr(roundIdx, m){
     var sa = m.w === "a" ? 1 : m.w === "b" ? 0 : 0.5;
     var gm = out.gm = gapMult(A.r, B.r, sa, ea);
     var mm = marginMult(m) * gm;
-    out.da = r1(kFor(A.n) * mm * (sa - ea));
-    out.db = r1(kFor(B.n) * mm * ((1-sa) - (1-ea)));
+    out.da = isJudge(m.a) ? 0 : r1(kFor(A.n) * mm * (sa - ea));
+    out.db = isJudge(m.b) ? 0 : r1(kFor(B.n) * mm * ((1-sa) - (1-ea)));
   }
   return out;
 }
@@ -845,19 +848,19 @@ function makeCost(rec, vols, upto, win, lo, hi){
 function pairCost(rec, vols, mt, win, lo, hi){
   return function(a,b){
     var c = 0;
+    /* A judge is here on purpose to absorb an odd number and can play anyone:
+       no level, rating or deck preference, so whoever is left over takes the
+       judge. The only thing avoided is facing the judge twice. */
+    var ja = isJudge(a), jb = isJudge(b);
+    if(ja && jb) return P_BLOCK2; /* two judges facing each other helps nobody */
+    if(ja !== jb){
+      var jr = rec[ja ? b : a];
+      return (jr && jr.opps.indexOf(ja ? a : b) >= 0) ? P_REMATCH : 0;
+    }
+
     var rawD = Math.abs(tierOf(a) - tierOf(b));
     var effD = Math.abs(effOf(rec,a) - effOf(rec,b));
     c += Math.pow(effD, 2) * P_EFF;
-
-    /* A judge is here on purpose to absorb an odd number, so the level gap is not a
-       violation for them. They are steered at the strongest player available instead:
-       a level 3 is the intended opponent, each level below that costs more. */
-    var ja = isJudge(a), jb = isJudge(b);
-    if(ja !== jb){
-      var opp = ja ? b : a;
-      return c + JUDGE_PREF * Math.max(0, 3 - Number(tierOf(opp) || 0));
-    }
-    if(ja && jb) return c + P_BLOCK2; /* two judges facing each other helps nobody */
 
     if(rawD >= 3){
       c += P_BLOCK3;
@@ -1260,7 +1263,7 @@ function renderPairings(){
   if(rematches) a.push(['warn','<b>' + rematches + ' rematch' + (rematches>1?'es':'') + '.</b> Every legal fresh opponent was used up.']);
   if(mirrors) a.push(['warn','<b>' + mirrors + ' mirror matchup' + (mirrors>1?'s':'') + '.</b> Unavoidable with the decks checked in. Re-roll to try a different spread.']);
   if(bridged) a.push(['ok','<b>' + bridged + ' two-tier match' + (bridged>1?'es':'') + '.</b> Allowed because the records cancel the gap: the lower tier is up, the higher tier is down.']);
-  if(judged) a.push(['ok','<b>' + judged + ' judge match' + (judged>1?'es':'') + '.</b> A judge is filling in so nobody sits out, sent at the strongest player available. Whoever judges plays as &ldquo;Judge&rdquo;, and those results stay out of the prizing standings.']);
+  if(judged) a.push(['ok','<b>' + judged + ' judge match' + (judged>1?'es':'') + '.</b> A judge is filling in so nobody sits out, playing whoever was left over. Whoever judges plays as &ldquo;Judge&rdquo;, and those results stay out of the prizing standings.']);
   if(gaps) a.push(['ok','<b>' + gaps + ' uneven match' + (gaps>1?'es':'') + '.</b> Under two skill points apart, volunteers first.']);
   if(!a.length) a.push(['ok','<b>Clean round.</b> No mirrors, no rematches, every match at the same skill level.']);
   if(viewRound === n-1){
