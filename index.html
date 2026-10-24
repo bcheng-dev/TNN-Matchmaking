@@ -2788,12 +2788,16 @@ async function syncNow(manual){
   if(!base){ if(manual) tell("Add the Apps Script URL on the MMR tab first."); return; }
   var pay = uploadPayload();
   var done = pay.m.filter(function(x){ return x[4] !== "bye"; }).length;
-  if(!done){ if(manual) tell("No reported results yet, so there is nothing to sync."); return; }
+  /* A press of the button syncs whatever is there, games in progress included:
+     finished matches go in the logs, games so far count in each player's game
+     totals. Only the automatic sync waits for a finished match. */
+  if(!pay.p.length){ if(manual) tell("Nobody is checked in or has played yet, so there is nothing to sync."); return; }
+  if(!done && !manual) return;
   var body = JSON.stringify(pay);
   if(!manual && body === sync.sent) return;   /* nothing changed since the last sync */
   if(sync.busy){ sync.again = true; if(manual) toast("A sync is already running; this one will follow it."); return; }
   sync.busy = true; syncBadge();
-  say("Syncing " + pay.p.length + " players and " + done + " matches…");
+  say("Syncing " + pay.p.length + " players and " + done + " finished matches…");
   try{
     /* text/plain keeps this a simple request: no preflight, which Apps Script
        cannot answer. */
@@ -2838,7 +2842,8 @@ function publishPayload(){
       var tal = gameTally(m);
       var res = m.w === "a" ? nameOf(m.a) + " wins " + tal.a + "\u2013" + tal.b
         : m.w === "b" ? nameOf(m.b) + " wins " + tal.b + "\u2013" + tal.a
-        : m.w === "d" ? "Draw" : "";
+        : m.w === "d" ? "Draw"
+        : (tal.a || tal.b) ? "In progress " + tal.a + "\u2013" + tal.b : "";
       return [ti + 1, nameOf(m.a), nameOf(m.b), res];
     })};
 }
@@ -2863,10 +2868,9 @@ el("btn-publish").addEventListener("click", async function(){
     state.published = {body: JSON.stringify(pay), at: out.published || new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})};
     persist();
     toast("Round " + pay.r + " published. Players see it at " + PUBLIC_PAGE.replace(/^https:\/\//, ""));
-    /* Publishing also syncs the event, once there is a result to sync. The
-       sync button on its own never publishes. */
-    var hasResult = state.rounds.some(function(rd){ return rd.matches.some(function(m){ return m.w; }); });
-    if(hasResult) syncNow(true);
+    /* Publishing always syncs the event too, finished or not. The sync button on
+       its own never publishes. */
+    syncNow(true);
   }catch(e){
     toast("Not published: " + e.message + ".");
   }finally{
