@@ -273,6 +273,7 @@ td.name{white-space:normal;font-weight:500}
     </div>
     <span class="dirty" id="dirty" hidden>Unsaved</span>
     <button class="btn" id="btn-pull">Pull ratings</button>
+    <button class="btn" id="btn-publish" title="Show the current round on the public pairings page">Publish pairings</button>
     <button class="btn primary" id="btn-push">Sync event to sheet</button>
   </div>
   <nav class="tabs" role="tablist">
@@ -1153,6 +1154,7 @@ function render(){
   el("s-round").textContent = last ? String(last) : "—";
   el("s-tables").textContent = last ? state.rounds[last-1].matches.length : 0;
   syncBadge();
+  if(typeof publishBadge === "function") try{ publishBadge(); }catch(e){}
   renderPairings();
   renderCheckin();
   renderStandings();
@@ -2823,9 +2825,54 @@ async function syncNow(manual){
 }
 el("btn-push").addEventListener("click", function(){ syncNow(true); });
 
+/* Publish the latest round to the Live Pairings tab, which the public pairings
+   page reads. Only names, tables and reported results go out. A GET, so an
+   older script just answers "unknown action" and nothing is written. */
+var PUBLIC_PAGE = "https://bcheng-dev.github.io/TNN-Standings/pairings.html";
+function publishPayload(){
+  var i = state.rounds.length - 1, rd = state.rounds[i];
+  if(!rd) return null;
+  return {ev: state.event.name || "", d: state.event.date || todayISO(), r: i + 1, mode: rd.mode || "",
+    bye: rd.bye ? nameOf(rd.bye) : "",
+    t: rd.matches.map(function(m, ti){
+      var tal = gameTally(m);
+      var res = m.w === "a" ? nameOf(m.a) + " wins " + tal.a + "\u2013" + tal.b
+        : m.w === "b" ? nameOf(m.b) + " wins " + tal.b + "\u2013" + tal.a
+        : m.w === "d" ? "Draw" : "";
+      return [ti + 1, nameOf(m.a), nameOf(m.b), res];
+    })};
+}
+function publishBadge(){
+  var b = el("btn-publish"), cur = JSON.stringify(publishPayload());
+  if(!state.published){ b.textContent = "Publish pairings"; return; }
+  b.textContent = cur === state.published.body ? "Published " + state.published.at : "Publish changes";
+}
+el("btn-publish").addEventListener("click", async function(){
+  if(!apiBase()){ toast("Add the Apps Script URL on the MMR tab first."); return; }
+  var pay = publishPayload();
+  if(!pay){ toast("Generate a round first."); return; }
+  var b = el("btn-publish");
+  b.disabled = true; b.textContent = "Publishing…";
+  try{
+    var url = apiUrl("publish") + "&pub=" + encodeURIComponent(JSON.stringify(pay)) + "&_=" + Date.now();
+    var res = await fetch(url, {method:"GET", redirect:"follow", cache:"no-store"});
+    if(!res.ok) throw new Error("the script answered " + res.status);
+    var out = await res.json();
+    if(!out.ok) throw new Error(/unknown action/i.test(out.error || "")
+      ? "the script is an older version; redeploy it" : (out.error || "the script reported a problem"));
+    state.published = {body: JSON.stringify(pay), at: out.published || new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})};
+    persist();
+    toast("Round " + pay.r + " published. Players see it at " + PUBLIC_PAGE.replace(/^https:\/\//, ""));
+  }catch(e){
+    toast("Not published: " + e.message + ".");
+  }finally{
+    b.disabled = false; publishBadge();
+  }
+});
+
 /* Mirror a check-in or check-out onto the signup sheet's "Checked in" box. A GET,
    so an older script that does not know the action just says so and changes nothing. */
-var SCRIPT_VERSION = "5-checkout";
+var SCRIPT_VERSION = "6-publish";
 async function sheetCheckin(id, on){
   if(!apiBase()) return;
   var date = state.event.date || todayISO();

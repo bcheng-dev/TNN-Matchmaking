@@ -22,6 +22,8 @@
  *   GET  ?action=ratings              every known player and their current rating
  *   GET  ?action=checkin&name=&date=&on=1|0
  *                                     tick or untick "Checked in" on the TNN Data signups
+ *   GET  ?action=publish&pub=JSON     replace the Live Pairings tab with the current round,
+ *                                     which the public pairings page reads
  *   POST (body = JSON, text/plain)    write one event: ratings, event log, match log
  *
  * Syncing the same event any number of times is safe: that date's log rows are
@@ -36,7 +38,7 @@
 
 /* Bump this whenever you edit the file. The pairings and standings pages show it,
    so you can tell at a glance whether the deployment is serving the new code. */
-var VERSION = '5-checkout';
+var VERSION = '6-publish';
 
 /* The signup form's spreadsheet, where the "Checked in" boxes live. */
 var SIGNUP_SHEET_ID = '1Tsoclk1mt6Yr8r2z9vT-j5KSBpxx-phHeVTj17B89ac';
@@ -45,11 +47,13 @@ var SIGNUP_TAB = 'TNN Signups';
 var RATINGS = 'Ratings';
 var EVENTS  = 'Event Log';
 var MATCHES = 'Match Log';
+var LIVE    = 'Live Pairings';
 
 var RATING_HEADERS = ['Player', 'Rating', 'Category', 'Events', 'Matches W', 'Matches L',
                       'Games W', 'Games L', 'Peak', 'First seen', 'Last played'];
 var EVENT_HEADERS  = ['Date', 'Event', 'Player', 'Category', 'Start MMR', 'End MMR', 'Change',
                       'Matches W', 'Matches L', 'Games W', 'Games L', 'Perf'];
+var LIVE_HEADERS   = ['Event', 'Date', 'Round', 'Method', 'Table', 'Player A', 'Player B', 'Result', 'Published'];
 var MATCH_HEADERS  = ['Date', 'Round', 'Table', 'Player', 'Opponent', 'Result', 'Score',
                       'Games', 'Note', 'MMR before', 'Change', 'MMR after'];
 
@@ -72,6 +76,7 @@ function doGet(e) {
     if (action === 'ratings') return json_({ ok: true, players: readRatings_() });
     if (action === 'events')  return json_({ ok: true, events: readEvents_() });
     if (action === 'event')   return json_(readEvent_(String(e.parameter.date || '')));
+    if (action === 'publish') return json_(publish_(JSON.parse(String(e.parameter.pub || '{}'))));
     if (action === 'checkin') return json_(setCheckin_(String(e.parameter.name || ''),
                                                        String(e.parameter.date || ''),
                                                        String(e.parameter.on) === '1'));
@@ -217,6 +222,37 @@ function setCheckin_(name, date, on) {
   }
 }
 
+/**
+ * The round players see. Replaces the whole Live Pairings tab with one row per
+ * table, plus a row for the bye. Every cell is plain text so the sheet never
+ * turns a name, score or time into something else.
+ * data: { ev, d, r, mode, t: [[table, nameA, nameB, result], ...], bye }
+ */
+function publish_(data) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sh = sheet_(ss, LIVE, LIVE_HEADERS);
+    var when = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'h:mm a');
+    var ev = String(data.ev || ''), d = String(data.d || ''), r = String(data.r || '');
+    var mode = data.mode === 'random' ? 'True random' : data.mode === 'mmr' ? 'MMR' : '';
+    var rows = (data.t || []).map(function (t) {
+      return [ev, d, r, mode, String(t[0]), String(t[1] || ''), String(t[2] || ''), String(t[3] || ''), when];
+    });
+    if (data.bye) rows.push([ev, d, r, mode, '', String(data.bye), 'Bye', 'Bye', when]);
+    if (!rows.length) rows.push([ev, d, r, mode, '', '', '', 'No pairings yet', when]);
+    var last = sh.getLastRow();
+    if (last > 1) sh.getRange(2, 1, last - 1, LIVE_HEADERS.length).clearContent();
+    var range = sh.getRange(2, 1, rows.length, LIVE_HEADERS.length);
+    range.setNumberFormat('@');
+    range.setValues(rows);
+    return { ok: true, version: VERSION, tables: (data.t || []).length, published: when };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /** "Friday, October 23rd" as "2026-10-23", in the year of the given date. */
 function signupDate_(v, like) {
   if (v instanceof Date) return dateKey_(v);
@@ -230,6 +266,9 @@ function signupDate_(v, like) {
 }
 
 function importEvent_(data) {
+  /* An empty event is never a real sync, and replacing a night's rows with
+     nothing would wipe it. */
+  if (!data || !data.p || !data.p.length) return { ok: false, error: 'No players in the event data; nothing written.' };
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
