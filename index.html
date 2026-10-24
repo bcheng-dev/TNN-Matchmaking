@@ -296,6 +296,10 @@ td.name{white-space:normal;font-weight:500}
       <button class="btn" id="btn-reroll" hidden>Re-roll</button>
       <button class="btn" id="btn-undo" hidden>Delete round</button>
       <button class="btn" id="btn-new-event">New event</button>
+      <select id="pair-mode" aria-label="Pairing method" title="How the next round is paired">
+        <option value="mmr">MMR pairing (200 range)</option>
+        <option value="random">True random</option>
+      </select>
       <button class="btn primary" id="btn-gen">Generate round 1</button>
     </div>
     <div class="alerts" id="alerts"></div>
@@ -321,6 +325,7 @@ td.name{white-space:normal;font-weight:500}
     <div class="rules">
       <b>Pairing rules applied, in order</b>
       <ol>
+        <li>Two pairing methods, chosen next to Generate round. MMR pairing follows every rule below, and because the tables are evenly matched its rating changes are 20% of a normal match. True random ignores the rules below, pairs anyone with anyone (only a rematch is avoided), and moves ratings the full amount.</li>
         <li>Within 200 MMR. Every table is kept inside a 200-point rating window, and the lowest-rated players get the closest matches. If anyone has nobody left inside it, the window widens 50 points at a time for the whole floor until everyone fits; the round says when that happened and marks any table past 200.</li>
         <li>Swiss on effective strength, which is the skill level from the brackets sheet adjusted by today's record. One net win is worth half a point, so a 1&ndash;0 level 0 is even with a 0&ndash;1 level 1 and the two get paired.</li>
         <li>Up to one point apart is normal once records diverge. Two or more apart is allowed only when the records cancel the gap, like a 1&ndash;0 level 0 against a 0&ndash;1 level 2. Three apart is never allowed, so level 0 never sees level 3.</li>
@@ -725,7 +730,7 @@ function mmrTable(uptoIdx){
       if(!A || !B) return;
       var ea = eloExpected(A.r, B.r);
       var sa = m.w === "a" ? 1 : m.w === "b" ? 0 : 0.5;
-      var mm = marginMult(m) * gapMult(A.r, B.r, sa, ea);
+      var mm = marginMult(m) * gapMult(A.r, B.r, sa, ea) * roundScale(i);
       ups.push({id:m.a, d:isJudge(m.a) ? 0 : kFor(A.n) * mm * (sa - ea),       opp:B.r, s:sa});
       ups.push({id:m.b, d:isJudge(m.b) ? 0 : kFor(B.n) * mm * ((1-sa) - (1-ea)), opp:A.r, s:1-sa});
     });
@@ -767,7 +772,7 @@ function matchMmr(roundIdx, m){
   if(m.w){
     var sa = m.w === "a" ? 1 : m.w === "b" ? 0 : 0.5;
     var gm = out.gm = gapMult(A.r, B.r, sa, ea);
-    var mm = marginMult(m) * gm;
+    var mm = marginMult(m) * gm * roundScale(roundIdx);
     out.da = isJudge(m.a) ? 0 : r1(kFor(A.n) * mm * (sa - ea));
     out.db = isJudge(m.b) ? 0 : r1(kFor(B.n) * mm * ((1-sa) - (1-ea)));
   }
@@ -964,7 +969,26 @@ function asMatch(p){
 /* Pair a pool inside the tightest rating window that fits everyone: 200 first,
    then 50 wider each pass until nobody is left outside it. The judge is a filler
    seat and is exempt from the window. */
+/* Two pairing methods, picked per round:
+     mmr     inside the 200 MMR window, with the level rules. Because the field is
+             evenly matched, ratings move only 20% of a normal match.
+     random  true random: anyone can play anyone, only a rematch is avoided.
+             Ratings move the full amount.
+   Rounds from before this setting existed have no mode and move the full amount. */
+var MMR_ROUND_SCALE = 0.2;
+function roundMode(i){ var rd = state.rounds[i]; return rd ? (rd.mode || "") : (state.pairMode || "mmr"); }
+function roundScale(i){ return roundMode(i) === "mmr" ? MMR_ROUND_SCALE : 1; }
+
+function pairRandom(pool, rec){
+  var pairs = matchPool(pool.slice(), function(a, b){
+    if(isJudge(a) && isJudge(b)) return P_BLOCK2;
+    return (rec[a] && rec[a].opps.indexOf(b) >= 0) ? P_REMATCH : 0;
+  }, 200);
+  return {matches: shuffle(pairs).map(asMatch), window: null};
+}
+
 function pairInWindow(pool, rec, upto){
+  if(roundMode(upto) === "random") return pairRandom(pool, rec);
   var mt = mmrTable(upto);
   var vols = (state.volunteers||[]).filter(function(v){ return pool.indexOf(v) >= 0; });
   var rs = pool.filter(function(id){ return !isJudge(id) && mt[id]; }).map(function(id){ return mt[id].r; });
@@ -1074,8 +1098,13 @@ function generateRound(replaceLast){
     bye = pickBye(pool, rec, upto);
     pool = pool.filter(function(id){ return id !== bye; });
   }
+  var mode = state.pairMode === "random" ? "random" : "mmr";
+  /* Pair under the method chosen for this round, even when replacing the last one. */
+  var keep = state.rounds[upto] ? state.rounds[upto].mode : undefined;
+  if(state.rounds[upto]) state.rounds[upto].mode = mode;
   var res = pairInWindow(pool, rec, upto);
-  return {n: upto + 1, bye: bye, matches: res.matches, window: res.window};
+  if(state.rounds[upto]) state.rounds[upto].mode = keep;
+  return {n: upto + 1, bye: bye, matches: res.matches, window: res.window, mode: mode};
 }
 
 function flagsFor(m, roundIdx){
@@ -1087,14 +1116,14 @@ function flagsFor(m, roundIdx){
   var mt = mmrTable(roundIdx);
   return {
     mmrGap: judged ? 0 : Math.round(mmrGap(mt, m.a, m.b)),
-    wide: outsideWindow(mt, m.a, m.b, MMR_WINDOW),
+    wide: roundMode(roundIdx) !== "random" && outsideWindow(mt, m.a, m.b, MMR_WINDOW),
     mirror: !!(da && db && da === db),
     gap: rawD,
     effD: effD,
     judge: judged,
     judgeOpp: judged ? (isJudge(m.a) ? m.b : m.a) : null,
     bridged: !judged && rawD >= 2 && rawD < 3 && bridges(rec, m.a, m.b),
-    illegal: !judged && (rawD >= 3 || (rawD >= 2 && !bridges(rec, m.a, m.b))),
+    illegal: !judged && roundMode(roundIdx) !== "random" && (rawD >= 3 || (rawD >= 2 && !bridges(rec, m.a, m.b))),
     rematch: !!(rec[m.a] && rec[m.a].opps.indexOf(m.b) >= 0)
   };
 }
@@ -1232,6 +1261,7 @@ function renderPairings(){
       : "no result yet";
     var mi0 = matchMmr(viewRound, m);
     var mlab = m.w ? marginLabel(m, mi0 && mi0.gm) : "";
+    if(m.w && roundScale(viewRound) < 1) mlab += (mlab ? " \u00b7 " : "") + "MMR round \u00d7" + MMR_ROUND_SCALE;
     html += gh + '<div class="mfoot">' +
       '<span class="verdict' + (m.w ? " done" : "") + '">' + verdict +
       (mlab ? ' <span class="mmult">' + mlab + '</span>' : '') +
@@ -1250,7 +1280,8 @@ function renderPairings(){
   }
   body.innerHTML = html;
 
-  el("round-note").textContent = "Round " + (viewRound+1) + " of " + n + " · tables 1–" +
+  el("round-note").textContent = "Round " + (viewRound+1) + " of " + n +
+    (rd.mode === "random" ? " · true random" : rd.mode === "mmr" ? " · MMR pairing" : "") + " · tables 1–" +
     rd.matches.length + " · " + reported + " of " + rd.matches.length + " results in";
   el("find-bar").hidden = false;
   applyFind();
@@ -1258,6 +1289,8 @@ function renderPairings(){
 
   var a = [];
   if(illegal) a.push(['bad','<b>' + illegal + ' pairing' + (illegal>1?'s':'') + ' outside the rules.</b> A tier jump got forced in without the records to justify it. Check someone in or add a walk-in to fix the split.']);
+  if(rd.mode === "random") a.push(['ok','<b>True random round.</b> Anyone could be paired with anyone; only rematches were avoided. Ratings move the full amount.']);
+  else if(rd.mode === "mmr") a.push(['ok','<b>MMR round.</b> Paired inside the ' + MMR_WINDOW + ' MMR window. Ratings move ' + Math.round(MMR_ROUND_SCALE * 100) + '% of a normal match.']);
   if(rd.window > MMR_WINDOW) a.push(['warn','<b>Rating window widened to ' + rd.window + ' MMR.</b> Not everyone could be paired within ' + MMR_WINDOW +
     ', so the window opened ' + WINDOW_STEP + ' points at a time until the whole floor fit. Tables past ' + MMR_WINDOW + ' are marked.']);
   if(rematches) a.push(['warn','<b>' + rematches + ' rematch' + (rematches>1?'es':'') + '.</b> Every legal fresh opponent was used up.']);
@@ -2283,6 +2316,15 @@ el("btn-new-event").addEventListener("click", function(){
   var banked = startNewEvent();
   touch();
   toast(banked ? "New event. " + banked + " ratings carried forward." : "New event started.");
+});
+
+el("pair-mode").value = state.pairMode === "random" ? "random" : "mmr";
+el("pair-mode").addEventListener("change", function(){
+  state.pairMode = el("pair-mode").value;
+  persist();
+  toast(state.pairMode === "random"
+    ? "Next round: true random, full MMR changes."
+    : "Next round: MMR pairing within " + MMR_WINDOW + ", MMR changes at " + Math.round(MMR_ROUND_SCALE * 100) + "%.");
 });
 
 el("btn-gen").addEventListener("click", function(){
