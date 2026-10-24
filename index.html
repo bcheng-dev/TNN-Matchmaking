@@ -780,6 +780,8 @@ function records(uptoIdx){
     var rd = state.rounds[i];
     if(rd.bye && r[rd.bye]){ r[rd.bye].byes++; }
     rd.matches.forEach(function(m){
+      /* Someone checked out after playing keeps the record they earned. */
+      [m.a, m.b].forEach(function(id){ if(!r[id] && byId(id)) r[id] = {w:0,l:0,d:0,gw:0,gl:0,byes:0,opps:[]}; });
       if(r[m.a]) r[m.a].opps.push(m.b);
       if(r[m.b]) r[m.b].opps.push(m.a);
       var t = gameTally(m);
@@ -1053,6 +1055,7 @@ function startNewEvent(){
   var banked = bankRatings();
   state.rounds = [];
   state.present = [];
+  state.checkedOut = {};
   state.event.date = todayISO();
   return banked;
 }
@@ -1564,9 +1567,13 @@ function uploadPayload(){
     });
     if(rd.bye && activeIds.indexOf(rd.bye) < 0) activeIds.push(rd.bye);
   });
-  /* The judge is a filler seat, not a competitor: nothing about them is written
-     to the sheet, so they can never surface on the public standings. */
-  activeIds = activeIds.filter(function(id){ return !isJudge(id); });
+  /* A judge who played goes along, flagged as a judge, so a win or loss against
+     them lands in the Match Log and the running MMR adds up. The script never
+     rates a judge and the standings page never shows one. A judge who never sat
+     down is left off. */
+  var seated = {};
+  state.rounds.forEach(function(rd){ rd.matches.forEach(function(m){ seated[m.a] = seated[m.b] = 1; }); });
+  activeIds = activeIds.filter(function(id){ return !isJudge(id) || seated[id]; });
 
   activeIds.sort(function(a,b){
     return (t[b] ? t[b].r : 0) - (t[a] ? t[a].r : 0) || nameOf(a).localeCompare(nameOf(b));
@@ -1964,7 +1971,10 @@ function renderRoster(){
       '</td><td><input type="number" data-skill="' + p.id + '" value="' + fmtSkill(p.tier) + '" min="0" max="4" step="0.5" style="width:66px">' +
       ' <span style="color:var(--muted);font-size:12.5px">' + esc(tierDef(p.tier).label) + '</span></td>' +
       '<td><input type="text" data-deck="' + p.id + '" value="' + esc(p.deck || "") + '" placeholder="deck" style="width:130px"></td>' +
-      '<td><button class="btn sm" data-toggle="' + p.id + '">' + (pres[p.id] ? "Checked in" : "Mark in") + '</button></td></tr>';
+      '<td><button class="btn sm" data-toggle="' + p.id + '">' + (pres[p.id] ? "Check out" : "Mark in") + '</button>' +
+      (pres[p.id] ? ' <span style="color:var(--muted);font-size:12.5px">checked in</span>'
+        : (state.checkedOut && state.checkedOut[p.id]) ? ' <span style="color:var(--muted);font-size:12.5px">checked out</span>' : '') +
+      '</td></tr>';
   });
   html += '</tbody></table></div>';
   el("roster-body").innerHTML = html;
@@ -2006,6 +2016,13 @@ document.body.addEventListener("click", function(ev){
   if(t.dataset.toggle){
     var id = t.dataset.toggle, i = state.present.indexOf(id);
     if(i >= 0) state.present.splice(i,1); else state.present.push(id);
+    /* A player checked out by hand stays out: reloading check-ins will not put
+       them back until they are marked in again. The signup sheet follows. */
+    if(!isJudge(id)){
+      state.checkedOut = state.checkedOut || {};
+      if(i >= 0) state.checkedOut[id] = 1; else delete state.checkedOut[id];
+      sheetCheckin(id, i < 0);
+    }
     /* Toggling the judge by hand is an override, so only a player change re-evens. */
     if(!isJudge(id)) autoJudge();
     touch();
@@ -2487,6 +2504,7 @@ function applyCheckinLog(log, iso, rows){
     var forEvent = (su && signupDate(su[fEv]) === iso) || asISO(r[cDate]) === iso;
     if(!forEvent) return;
     var p = findByName(nm);
+    if(p && state.checkedOut && state.checkedOut[p.id]) return;
     if(!p){
       var id = slug(nm);
       while(byId(id)) id = id + "-2";
@@ -2515,6 +2533,7 @@ function applyCheckedBoxes(rows, iso){
     var nm = String(r[cName] || "").trim();
     if(!nm || signupDate(r[cEv]) !== iso) return;
     var p = findByName(nm);
+    if(p && state.checkedOut && state.checkedOut[p.id]) return;
     if(!p){
       var id = slug(nm);
       while(byId(id)) id = id + "-2";
@@ -2745,7 +2764,7 @@ async function syncNow(manual){
     persist();
     say("Synced " + out.ratings + " ratings, " + out.eventRows + " event rows and " +
         out.matchRows + " match rows for " + out.date + "." +
-        (out.version && out.version !== "4-live" ? " The script is on an older version (" + out.version + "); redeploy it." : ""));
+        (out.version && out.version !== SCRIPT_VERSION ? " The script is on an older version (" + out.version + "); redeploy it." : ""));
     if(manual) toast("Sheet updated.");
   }catch(e){
     sync.failed = true;
@@ -2758,6 +2777,26 @@ async function syncNow(manual){
   }
 }
 el("btn-push").addEventListener("click", function(){ syncNow(true); });
+
+/* Mirror a check-in or check-out onto the signup sheet's "Checked in" box. A GET,
+   so an older script that does not know the action just says so and changes nothing. */
+var SCRIPT_VERSION = "5-checkout";
+async function sheetCheckin(id, on){
+  if(!apiBase()) return;
+  var date = state.event.date || todayISO();
+  try{
+    var url = apiUrl("checkin") + "&name=" + encodeURIComponent(nameOf(id)) +
+      "&date=" + encodeURIComponent(date) + "&on=" + (on ? 1 : 0) + "&_=" + Date.now();
+    var res = await fetch(url, {method:"GET", redirect:"follow", cache:"no-store"});
+    if(!res.ok) throw new Error("the script answered " + res.status);
+    var out = await res.json();
+    if(!out.ok) throw new Error(/unknown action/i.test(out.error || "")
+      ? "the script is an older version; redeploy it" : (out.error || "the script reported a problem"));
+    if(out.rows) toast(nameOf(id) + (on ? " ticked" : " unticked") + " on the signup sheet.");
+  }catch(e){
+    toast("Signup sheet not updated for " + nameOf(id) + ": " + e.message + ".");
+  }
+}
 
 render();
 })();

@@ -20,6 +20,8 @@
  * ACTIONS
  *   GET  ?action=ping                 is the endpoint alive
  *   GET  ?action=ratings              every known player and their current rating
+ *   GET  ?action=checkin&name=&date=&on=1|0
+ *                                     tick or untick "Checked in" on the TNN Data signups
  *   POST (body = JSON, text/plain)    write one event: ratings, event log, match log
  *
  * Syncing the same event any number of times is safe: that date's log rows are
@@ -34,7 +36,11 @@
 
 /* Bump this whenever you edit the file. The pairings and standings pages show it,
    so you can tell at a glance whether the deployment is serving the new code. */
-var VERSION = '4-live';
+var VERSION = '5-checkout';
+
+/* The signup form's spreadsheet, where the "Checked in" boxes live. */
+var SIGNUP_SHEET_ID = '1Tsoclk1mt6Yr8r2z9vT-j5KSBpxx-phHeVTj17B89ac';
+var SIGNUP_TAB = 'TNN Signups';
 
 var RATINGS = 'Ratings';
 var EVENTS  = 'Event Log';
@@ -66,6 +72,9 @@ function doGet(e) {
     if (action === 'ratings') return json_({ ok: true, players: readRatings_() });
     if (action === 'events')  return json_({ ok: true, events: readEvents_() });
     if (action === 'event')   return json_(readEvent_(String(e.parameter.date || '')));
+    if (action === 'checkin') return json_(setCheckin_(String(e.parameter.name || ''),
+                                                       String(e.parameter.date || ''),
+                                                       String(e.parameter.on) === '1'));
     // A payload on the query string still works, for a client that cannot POST.
     if (e.parameter && e.parameter.p) return json_(importEvent_(JSON.parse(e.parameter.p)));
     return json_({ ok: false, error: 'Unknown action: ' + action });
@@ -168,6 +177,57 @@ function readEvent_(date) {
 }
 
 /* ---------- write ---------- */
+
+/**
+ * Tick or untick "Checked in" for one person on the signup tab. Every row with
+ * their name for that event is set, so a duplicate signup cannot leave a stale
+ * tick behind. Nobody on the tab (a walk-in) is not an error: there is no box.
+ */
+function setCheckin_(name, date, on) {
+  var key = normalize_(name);
+  if (!key) return { ok: false, error: 'No name given.' };
+  date = dateKey_(date) || todayISO_();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sh = SpreadsheetApp.openById(SIGNUP_SHEET_ID).getSheetByName(SIGNUP_TAB);
+    if (!sh) return { ok: false, error: 'No "' + SIGNUP_TAB + '" tab on the signup sheet.' };
+    var last = sh.getLastRow(), width = sh.getLastColumn();
+    if (last < 2) return { ok: true, version: VERSION, rows: 0 };
+    var head = sh.getRange(1, 1, 1, width).getValues()[0].map(function (h) { return String(h).trim(); });
+    var cName = -1, cBox = -1, cEv = [];
+    head.forEach(function (h, i) {
+      if (cName < 0 && /what is your (full )?name/i.test(h)) cName = i;
+      if (cBox < 0 && /^checked[\s-]*in$/i.test(h)) cBox = i;
+      if (/which event/i.test(h)) cEv.push(i);
+    });
+    if (cName < 0 || cBox < 0) return { ok: false, error: 'The signup tab needs a name column and a "Checked in" column.' };
+    var vals = sh.getRange(2, 1, last - 1, width).getValues();
+    var hits = 0;
+    vals.forEach(function (r, i) {
+      if (normalize_(r[cName]) !== key) return;
+      var forDate = cEv.some(function (c) { return signupDate_(r[c], date) === date; });
+      if (!forDate) return;
+      sh.getRange(i + 2, cBox + 1).setValue(on);
+      hits++;
+    });
+    return { ok: true, version: VERSION, rows: hits };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** "Friday, October 23rd" as "2026-10-23", in the year of the given date. */
+function signupDate_(v, like) {
+  if (v instanceof Date) return dateKey_(v);
+  var months = ['january','february','march','april','may','june','july','august',
+                'september','october','november','december'];
+  var m = /([a-z]+)\s+(\d{1,2})/i.exec(String(v || '').replace(/^[a-z]+,\s*/i, ''));
+  if (!m) return '';
+  var mi = months.indexOf(m[1].toLowerCase());
+  if (mi < 0) return '';
+  return String(like).slice(0, 4) + '-' + ('0' + (mi + 1)).slice(-2) + '-' + ('0' + m[2]).slice(-2);
+}
 
 function importEvent_(data) {
   var lock = LockService.getScriptLock();
