@@ -363,6 +363,18 @@ td.name{white-space:normal;font-weight:500}
       </div>
       <p class="note" id="su-note" style="margin:9px 0 0;font-size:12.5px;color:var(--muted)"></p>
     </div>
+    <div class="card" style="padding:14px;margin-bottom:18px">
+      <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px">
+        <h3 style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin:0">Checked in <span id="ci-count" style="color:var(--muted)"></span></h3>
+        <input type="search" id="ci-find" placeholder="Filter names" style="flex:1 1 180px;max-width:280px;margin-left:auto">
+      </div>
+      <p class="note" style="margin:0 0 10px;font-size:13px;color:var(--muted)">Tap a name to check them out. It also unticks them on the signup sheet, and Load checked-in will not add them back.</p>
+      <div id="ci-in"></div>
+      <div id="ci-out-wrap" hidden>
+        <h3 style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin:16px 0 8px">Checked out <span id="ci-out-count" style="color:var(--muted)"></span></h3>
+        <div id="ci-out"></div>
+      </div>
+    </div>
     <details class="card" style="padding:14px;margin-bottom:18px">
       <summary style="cursor:pointer;font-family:var(--display);font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase">Manual paste (only if the bot is down)</summary>
       <p class="note" style="margin:10px 0 10px;font-size:13px;color:var(--muted)">
@@ -1400,6 +1412,26 @@ function renderCheckin(){
   html += '</div>';
   el("checkin-body").innerHTML = judges.length ? html
     : '<p class="note" style="margin:0;font-size:13px;color:var(--muted)">No judge on the roster. Add one on the Roster tab at level 4.</p>';
+  /* Everyone on the floor, and anyone checked out by hand, each a tap away. */
+  var q = (el("ci-find").value || "").trim().toLowerCase();
+  var chip = function(p, on){
+    return '<button class="chip" aria-pressed="' + (on ? "true" : "false") + '" data-toggle="' + p.id + '" title="' + (on ? "Check out" : "Check back in") + '">' +
+      '<span class="box"></span><span class="txt"><span class="nm">' + esc(p.name) + '</span>' +
+      '<span class="dk">' + esc(tierDef(p.tier).label) + (p.deck ? " \u00b7 " + esc(p.deck) : "") + (on ? "" : " \u00b7 tap to check in") + '</span></span></button>';
+  };
+  var match = function(p){ return !q || p.name.toLowerCase().indexOf(q) >= 0; };
+  var ins = present().map(byId).filter(function(p){ return p && !p.judge; })
+    .sort(function(a, b){ return a.name.localeCompare(b.name); });
+  var outs = state.roster.filter(function(p){ return !p.judge && !pres[p.id] && state.checkedOut && state.checkedOut[p.id]; })
+    .sort(function(a, b){ return a.name.localeCompare(b.name); });
+  var shownIn = ins.filter(match), shownOut = outs.filter(match);
+  el("ci-count").textContent = "\u00b7 " + ins.length;
+  el("ci-in").innerHTML = shownIn.length ? '<div class="chips">' + shownIn.map(function(p){ return chip(p, true); }).join("") + '</div>'
+    : '<p class="note" style="margin:0;font-size:13px;color:var(--muted)">' + (ins.length ? "No one checked in matches that name." : "No one is checked in yet. Load checked-in above, or mark people in on the Roster tab.") + '</p>';
+  el("ci-out-wrap").hidden = !shownOut.length;
+  el("ci-out-count").textContent = "\u00b7 " + outs.length;
+  el("ci-out").innerHTML = '<div class="chips">' + shownOut.map(function(p){ return chip(p, false); }).join("") + '</div>';
+
   el("checkin-note").textContent = present().length + " checked in" +
     (present().length % 2 ? " · odd number, so check in Judge or one player takes a bye" : "");
 }
@@ -2273,6 +2305,7 @@ function runPaste(mode){
 }
 el("btn-signups").addEventListener("click", function(){ loadSignups(false); });
 el("btn-checkins").addEventListener("click", function(){ loadSignups(true); });
+el("ci-find").addEventListener("input", function(){ renderCheckin(); });
 el("su-event").addEventListener("change", function(){ loadSignups(false); });
 el("btn-paste").addEventListener("click", function(){ runPaste("replace"); });
 el("btn-paste-add").addEventListener("click", function(){ runPaste("add"); });
