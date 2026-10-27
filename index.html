@@ -2362,7 +2362,15 @@ el("pair-mode").addEventListener("change", function(){
     : "Next round: MMR pairing within " + MMR_WINDOW + ", MMR changes at " + Math.round(MMR_ROUND_SCALE * 100) + "%.");
 });
 
-el("btn-gen").addEventListener("click", function(){
+el("btn-gen").addEventListener("click", async function(){
+  /* Round 1 always starts from the latest ratings on the sheet, so a new night
+     never runs on numbers left over from the last one. */
+  if(!state.rounds.length){
+    var gb = el("btn-gen"); gb.disabled = true; gb.textContent = "Pulling ratings…";
+    try{ var n = await pullRatings(true); toast(n + " ratings pulled from the sheet."); }
+    catch(e){ toast("Could not read the sheet, so the ratings already on the board are used."); }
+    finally{ gb.disabled = false; }
+  }
   autoJudge(true);
   var r = generateRound(false);
   if(!r){ toast("Check in at least two players first."); return; }
@@ -2381,6 +2389,8 @@ el("btn-reroll").addEventListener("click", function(){
 el("btn-undo").addEventListener("click", function(){
   state.rounds.pop();
   viewRound = state.rounds.length - 1;
+  /* With every round gone, the board is tonight's again, not an old night's. */
+  if(!state.rounds.length) state.event.date = todayISO();
   touch();
 });
 
@@ -2700,14 +2710,16 @@ async function loadSignups(checkinsOnly){
     pick.innerHTML = dates.map(function(d){ return '<option value="' + d + '">' + esc(prettyDate(d)) + '</option>'; }).join("");
     pick.hidden = !dates.length;
     /* Tonight if it has signups, otherwise the next event coming up. */
-    var today = state.event.date || todayISO();
+    var today = state.rounds.length ? (state.event.date || todayISO()) : todayISO();
     var want = dates.indexOf(keep) >= 0 ? keep
       : dates.indexOf(today) >= 0 ? today
       : (dates.filter(function(d){ return d >= today; })[0] || dates[dates.length - 1]);
     if(!want){ note.textContent = "The signup tab has no event dates yet."; return; }
     pick.value = want;
     /* Loading an event's signups makes it the event on the board, until a round is played. */
-    if(!state.rounds.length) state.event.date = want;
+    /* A past night's signups can be looked at, but never become the event: tonight's
+       results would land on that night's date and replace it. */
+    if(!state.rounds.length) state.event.date = want >= todayISO() ? want : todayISO();
     var r = applySignups(rows, tonightStarts(got[1], got[3], state.event.date || want), want);
     var c = applyCheckinLog(log, want, rows);
     var b = applyCheckedBoxes(rows, want);
@@ -2766,7 +2778,8 @@ el("btn-ping").addEventListener("click", async function(){
    keeps their skill seed, which is what a first-timer should get. */
 /* Carry-in ratings come straight from the Ratings tab, so this works before the
    Apps Script is set up and keeps working if the deployment ever breaks. */
-el("btn-pull").addEventListener("click", async function(){
+el("btn-pull").addEventListener("click", function(){ pullRatings(false); });
+async function pullRatings(quiet){
   say("Reading the Ratings tab…");
   try{
     var both = await Promise.all([readSheetTab("Ratings"), readEventLog()]);
@@ -2786,11 +2799,14 @@ el("btn-pull").addEventListener("click", async function(){
     say(hit + " rating" + (hit === 1 ? "" : "s") + " pulled in" +
         (miss.length ? " · on the sheet but not on the roster: " + miss.join(", ") : "") +
         " · everyone else starts on their skill seed.");
+    return hit;
   }catch(e){
     say("Could not read the Ratings tab: " + e.message +
         ". Share the sheet as Anyone with the link, Viewer.");
+    if(quiet) throw e;
+    return 0;
   }
-});
+}
 
 /* Push the whole event: ladder, per-player summary, per-match log.
    It runs on its own a few seconds after any change once results are in, so the
