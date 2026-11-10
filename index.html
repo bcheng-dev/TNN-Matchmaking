@@ -123,6 +123,15 @@ label.fld{display:flex;flex-direction:column;gap:4px;font-family:var(--mono);fon
 .match{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;display:flex;flex-direction:column}
 .match .mh{display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--surface-2);border-bottom:1px solid var(--line)}
 .match .tnum{font-family:var(--display);font-size:15px;font-weight:700;line-height:1;min-width:26px;height:26px;padding:0 6px;display:grid;place-items:center;border-radius:7px;background:var(--accent);color:var(--surface);font-variant-numeric:tabular-nums}
+.match .fold{margin-left:auto;flex:0 0 auto;display:flex;align-items:center;gap:6px;background:none;border:1px solid var(--line);border-radius:7px;padding:3px 8px;cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.match .fold:hover{border-color:var(--accent);color:var(--ink)}
+.match .fold .chev{width:7px;height:7px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(45deg) translate(-1px,-1px);transition:transform .15s}
+.match.folded .fold .chev{transform:rotate(-135deg) translate(-1px,-1px)}
+.match.folded{align-self:start}
+.match.folded .games,.match.folded .mfoot{display:none}
+.match.folded .side{cursor:default}
+.match .fverdict{font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap}
+.match .fverdict.done{color:var(--good)}
 .match .tbl{font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
 .dim{opacity:.26}
 .findhit{outline:2px solid var(--accent);outline-offset:2px}
@@ -321,6 +330,7 @@ td.name{white-space:normal;font-weight:500}
     <div class="toolbar" id="find-bar" hidden>
       <input type="search" id="find" placeholder="Type your name to find your table" style="flex:1 1 260px">
       <span class="note" id="find-note" style="font-size:13px;color:var(--muted)"></span>
+      <button class="btn sm" id="btn-fold-all">Collapse all</button>
     </div>
     <div id="pair-body"></div>
     <div class="rules">
@@ -1181,6 +1191,13 @@ function tierPill(t){
   return '<span class="tierpill" style="color:var(' + C.css + ')">' + esc(C.short) + '</span>';
 }
 
+/* Folding a table hides its game buttons and result controls, leaving just the
+   two players. "Collapse all" sets the default for every table; a table's own
+   chevron flips it from there. Remembered in this browser only. */
+var foldAll = false, foldFlip = {};
+try{ foldAll = localStorage.getItem("rb-fold-all") === "1"; }catch(e){}
+function isFolded(r, i){ return foldAll !== !!foldFlip[r + ":" + i]; }
+
 function renderPairings(){
   var body = el("pair-body"), alerts = el("alerts"), pick = el("round-pick");
   var n = state.rounds.length;
@@ -1201,6 +1218,7 @@ function renderPairings(){
   el("btn-reroll").textContent = "Re-roll open tables";
   el("btn-undo").hidden = !(n && viewRound === n-1);
 
+  el("btn-fold-all").textContent = foldAll ? "Expand all" : "Collapse all";
   if(!n){
     alerts.innerHTML = "";
     el("round-note").textContent = "";
@@ -1236,9 +1254,17 @@ function renderPairings(){
     if(f.rematch) fl += '<span class="flag rem">rematch</span>';
     if(f.wide) fl += '<span class="flag gap">' + f.mmrGap + ' mmr apart</span>';
     var names = ((byId(m.a) ? byId(m.a).name : "") + " | " + (byId(m.b) ? byId(m.b).name : "")).toLowerCase();
-    html += '<div class="match" data-names="' + esc(names) + '" data-label="Table ' + (idx+1) + '">' +
+    var folded = isFolded(viewRound, idx);
+    var tal0 = gameTally(m);
+    var short = m.w === "a" ? shortName(m.a) + " won " + tal0.a + "\u2013" + tal0.b
+      : m.w === "b" ? shortName(m.b) + " won " + tal0.b + "\u2013" + tal0.a
+      : m.w === "d" ? "drawn" : (tal0.a || tal0.b) ? tal0.a + "\u2013" + tal0.b : "";
+    html += '<div class="match' + (folded ? " folded" : "") + '" data-names="' + esc(names) + '" data-label="Table ' + (idx+1) + '">' +
       '<div class="mh"><span class="tnum">' + (idx+1) + '</span><span class="tbl">Table</span>' +
-      '<div class="flags">' + fl + '</div></div>';
+      '<div class="flags">' + fl + '</div>' +
+      '<button class="fold" data-fold="' + viewRound + ':' + idx + '" aria-expanded="' + (folded ? "false" : "true") + '" title="' + (folded ? "Show results" : "Hide results") + '">' +
+        (folded && short ? '<span class="fverdict' + (m.w ? " done" : "") + '">' + esc(short) + '</span>' : '') +
+        '<span class="chev"></span></button></div>';
     [["a",m.a],["b",m.b]].forEach(function(pair){
       var side = pair[0], id = pair[1];
       var r = rec[id] || {w:0,l:0,d:0};
@@ -1247,7 +1273,8 @@ function renderPairings(){
       var mr = mi ? (side === "a" ? mi.ra : mi.rb) : null;
       var mp = mi ? (side === "a" ? mi.ea : mi.eb) : null;
       var md = mi ? (side === "a" ? mi.da : mi.db) : null;
-      html += '<button class="side' + (m.w === side ? " win" : "") + '" data-win="' + viewRound + ':' + idx + ':' + side + '">' +
+      html += (folded ? '<div class="side' + (m.w === side ? " win" : "") + '">'
+        : '<button class="side' + (m.w === side ? " win" : "") + '" data-win="' + viewRound + ':' + idx + ':' + side + '">') +
         tierPill(tierOf(id)) +
         '<span class="who"><span class="nm">' + esc(p ? p.name : id) + '</span>' +
         '<span class="meta">' + esc(p && p.deck ? p.deck : "deck tbd") +
@@ -1255,7 +1282,7 @@ function renderPairings(){
           '</span></span>' +
         (md !== null ? '<span class="mdelta ' + (md > 0 ? "up" : md < 0 ? "down" : "") + '">' + fmtDelta(md) + '</span>' : '') +
         '<span class="rec">' + r.w + '&ndash;' + r.l + '</span>' +
-        '<span class="mark"></span></button>';
+        '<span class="mark"></span>' + (folded ? '</div>' : '</button>');
     });
     var sa = shortName(m.a), sb = shortName(m.b), tal = gameTally(m);
     var gh = '<div class="games">';
@@ -2306,6 +2333,17 @@ function runPaste(mode){
 el("btn-signups").addEventListener("click", function(){ loadSignups(false); });
 el("btn-checkins").addEventListener("click", function(){ loadSignups(true); });
 el("ci-find").addEventListener("input", function(){ renderCheckin(); });
+el("btn-fold-all").addEventListener("click", function(){
+  foldAll = !foldAll; foldFlip = {};
+  try{ localStorage.setItem("rb-fold-all", foldAll ? "1" : "0"); }catch(e){}
+  renderPairings(); applyFind();
+});
+el("pair-body").addEventListener("click", function(ev){
+  var b = ev.target.closest("[data-fold]");
+  if(!b) return;
+  foldFlip[b.dataset.fold] = !foldFlip[b.dataset.fold];
+  renderPairings(); applyFind();
+});
 el("su-event").addEventListener("change", function(){ loadSignups(false); });
 el("btn-paste").addEventListener("click", function(){ runPaste("replace"); });
 el("btn-paste-add").addEventListener("click", function(){ runPaste("add"); });
