@@ -33,9 +33,14 @@
  * is set, writes are open to anyone with the URL, the way they always were.
  *
  * NEXUS POINTS: the Nexus Ledger tab holds one row per award or redemption, and
- * a player's balance is the sum of their rows. Each sync replaces that night's
- * award rows (Source "event"). Rows an officer adds by hand, such as a
- * redemption of -10 with Source left blank, are never touched.
+ * a player's balance is the sum of their rows. Awards only arrive when an officer
+ * presses "Sync event to sheet" on the board (the automatic syncs and Publish leave
+ * them out), and each such sync replaces that night's award rows (Source "event")
+ * rather than adding to them, so pressing it twice never pays twice. Every other
+ * row, such as a Discord bot redemption or one an officer typed in, is never
+ * touched, and rows are removed and added in place, so the columns after Source
+ * (Discord ID) stay with their own row. Awards need the event's date: without one
+ * the script refuses them, since a night filed under two dates would pay twice.
  *
  * Syncing the same event any number of times is safe: that date's log rows are
  * replaced, and every player's lifetime totals are rebuilt from the Event Log.
@@ -49,7 +54,7 @@
 
 /* Bump this whenever you edit the file. The pairings and standings pages show it,
    so you can tell at a glance whether the deployment is serving the new code. */
-var VERSION = '7-nexus';
+var VERSION = '8-nexus-safe';
 
 /* The signup form's spreadsheet, where the "Checked in" boxes live. */
 var SIGNUP_SHEET_ID = '1Tsoclk1mt6Yr8r2z9vT-j5KSBpxx-phHeVTj17B89ac';
@@ -317,7 +322,13 @@ function importEvent_(data) {
     writeEventLog_(ss, date, eventName, players);
     var matchRows = writeMatchLog_(ss, date, players, data.m || []);
     var rated = writeRatings_(ss, date, players);
-    var nexusRows = data.n ? writeNexus_(ss, date, data.n) : 0;
+    /* Awards only with a real event date: a blank date falls back to today, and a
+       night synced on both sides of midnight would then be paid under two dates. */
+    var nexusRows = 0;
+    if (data.n) {
+      if (!dateKey_(data.d)) return { ok: false, error: 'Set the event date before handing out Nexus Points.' };
+      nexusRows = writeNexus_(ss, date, data.n);
+    }
 
     return { ok: true, version: VERSION, date: date, event: eventName,
              ratings: rated, eventRows: players.length, matchRows: matchRows, nexusRows: nexusRows };
@@ -454,25 +465,31 @@ function writeRatings_(ss, date, players) {
 }
 
 /**
- * One night's Nexus Point awards: n is [[player, points, reason], ...]. Award rows
- * for this date are replaced; anything typed in by hand (Source not "event"),
- * including that night's redemptions, stays put.
+ * One night's Nexus Point awards: n is [[player, points, reason], ...]. That date's
+ * award rows (Source "event") are deleted and the new ones added at the bottom, so
+ * re-syncing replaces the night's awards instead of adding to them. Rows are
+ * deleted whole, never rewritten, because the tab is shared: the Discord bot
+ * appends redemptions at any moment, and the Discord ID column sits past Source.
+ * Rewriting the tab from a copy read a moment earlier could drop a redemption
+ * that landed in between, or leave a Discord ID beside somebody else's row.
  */
 function writeNexus_(ss, date, awards) {
   var sh = sheet_(ss, NEXUS, NEXUS_HEADERS);
   var width = NEXUS_HEADERS.length;
   var last = sh.getLastRow();
-  var keep = last > 1
-    ? sh.getRange(2, 1, last - 1, width).getValues().filter(function (r) {
-        if (r.every(function (v) { return String(v) === ''; })) return false;
-        return !(dateKey_(r[0]) === date && String(r[4]) === 'event');
-      })
-    : [];
+  if (last > 1) {
+    var vals = sh.getRange(2, 1, last - 1, width).getValues();
+    var isAward = function (r) { return dateKey_(r[0]) === date && String(r[4]) === 'event'; };
+    for (var i = vals.length - 1; i >= 0; i--) {
+      if (!isAward(vals[i])) continue;
+      var end = i;
+      while (i > 0 && isAward(vals[i - 1])) i--;
+      sh.deleteRows(i + 2, end - i + 1);   // bottom up, so the rows above keep their numbers
+    }
+  }
   var rows = awards.map(function (a) { return [date, String(a[0]), num_(a[1]), String(a[2] || ''), 'event']; })
                    .filter(function (r) { return r[1] && r[2]; });
-  var all = keep.concat(rows);
-  if (last > 1) sh.getRange(2, 1, last - 1, width).clearContent();
-  if (all.length) sh.getRange(2, 1, all.length, width).setValues(all);
+  if (rows.length) sh.getRange(sh.getLastRow() + 1, 1, rows.length, width).setValues(rows);
   return rows.length;
 }
 
