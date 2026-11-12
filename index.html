@@ -2593,7 +2593,9 @@ function signupDate(txt){
    amateur by category who starts a level higher, at 1100. */
 function levelFor(answer, current){
   var a = String(answer || "").toLowerCase();
-  if(/triton nexus nights before|in the system/.test(a)) return {tier: current === undefined ? 3 : current, known:true};
+  /* "I played here before!" (formerly "I played at Triton Nexus Nights before!"):
+     a returning player, who should already have an MMR on the sheet. */
+  if(/played here|triton nexus nights before|in the system/.test(a)) return {tier: current === undefined ? 3 : current, known:true};
   if(/progamer|competitive/.test(a)) return {tier:3, seed:skillSeed(4)};
   if(/nexus/.test(a))   return {tier:3};
   if(/amateur/.test(a)) return {tier:2.5};
