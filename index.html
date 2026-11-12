@@ -336,7 +336,7 @@ td.name{white-space:normal;font-weight:500}
     <div class="rules">
       <b>Pairing rules applied, in order</b>
       <ol>
-        <li>Two pairing methods, chosen next to Generate round. MMR pairing follows every rule below, and because the tables are evenly matched its rating changes are 25% of a normal match. True random ignores the rules below, pairs anyone with anyone (only a rematch is avoided), and moves ratings the full amount.</li>
+        <li>Two pairing methods, chosen next to Generate round. MMR pairing follows every rule below, and because the tables are evenly matched its rating changes are 20% of a normal match. True random ignores the rules below, pairs anyone with anyone (only a rematch is avoided), and moves ratings the full amount.</li>
         <li>Within 200 MMR. Every table is kept inside a 200-point rating window, and the lowest-rated players get the closest matches. If anyone has nobody left inside it, the window widens 50 points at a time for the whole floor until everyone fits; the round says when that happened and marks any table past 200.</li>
         <li>Swiss on effective strength, which is the skill level from the brackets sheet adjusted by today's record. One net win is worth half a point, so a 1&ndash;0 level 0 is even with a 0&ndash;1 level 1 and the two get paired.</li>
         <li>Up to one point apart is normal once records diverge. Two or more apart is allowed only when the records cancel the gap, like a 1&ndash;0 level 0 against a 0&ndash;1 level 2. Three apart is never allowed, so level 0 never sees level 3.</li>
@@ -999,11 +999,11 @@ function asMatch(p){
    seat and is exempt from the window. */
 /* Two pairing methods, picked per round:
      mmr     inside the 200 MMR window, with the level rules. Because the field is
-             evenly matched, ratings move only 25% of a normal match.
+             evenly matched, ratings move only 20% of a normal match.
      random  true random: anyone can play anyone, only a rematch is avoided.
              Ratings move the full amount.
    Rounds from before this setting existed have no mode and move the full amount. */
-var MMR_ROUND_SCALE = 0.25;
+var MMR_ROUND_SCALE = 0.2;
 function roundMode(i){ var rd = state.rounds[i]; return rd ? (rd.mode || "") : (state.pairMode || "mmr"); }
 function roundScale(i){ return roundMode(i) === "mmr" ? MMR_ROUND_SCALE : 1; }
 
