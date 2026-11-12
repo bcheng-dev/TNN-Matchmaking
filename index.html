@@ -362,8 +362,8 @@ td.name{white-space:normal;font-weight:500}
       <h3 style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Signups</h3>
       <p class="note" style="margin:0 0 10px;font-size:13px;color:var(--muted)">
         Load the signup sheet before round 1. Everyone who signed up for the event keeps their MMR from the
-        Triton MMR sheet; anyone without one starts from their experience answer: never played 900, noob 1000,
-        amateur 1025, Nexus Nights 1050, PROGAMER 1100. Check-in comes from the Discord bot's verified
+        Triton MMR sheet; anyone without one starts at 1000. Their experience answer sets their level, which decides
+        who they can be paired with. Check-in comes from the Discord bot's verified
         Check-in Log and from ticked boxes in the &ldquo;Checked in&rdquo; column of the TNN Signups tab; press Load checked-in again as more people arrive. Nobody is ever checked out by it.
       </p>
       <div class="toolbar" style="margin:0">
@@ -467,14 +467,14 @@ td.name{white-space:normal;font-weight:500}
     <div class="rules">
       <b>How the rating moves</b>
       <ol>
-        <li>Ratings are <b>seeded by skill</b>: <span class="formula">900 + 50 &times; skill level</span>. Never played opens at 900, noob at 1000, amateur at 1050, and the half steps land in between. The ladder starts out reflecting what the room already knows, so a never-played player beating an amateur reads as the upset it is.</li>
+        <li>Ratings come from the <b>Triton MMR sheet</b>. Anyone with no MMR there starts at a flat <span class="formula">1000</span>, whatever their skill level; their level still decides their category and who they can be paired with.</li>
         <li>Each match, your expected score comes from the rating gap: <span class="formula">E = 1 / (1 + 10^((opponent &minus; you) / 400))</span>. A 100-point underdog is expected to win about 36% of the time, a 200-point underdog about 24%.</li>
         <li>The change is <span class="formula">K &times; margin &times; (result &minus; E)</span>. Beating someone rated above you pays more than beating someone below, and the loser pays exactly what the winner earns, so the pool total stays flat.</li>
         <li>K is deliberately conservative: <b>28</b> for a player's first three matches, then <b>20</b>. An even matchup moves 12 to 18 points, while a 200-point upset win on a sweep pays about <b>+27</b>. Nobody's rating lurches on one result.</li>
         <li>Margin reads the best of three and cuts both ways. A <b>2&ndash;0 sweep</b> was decisive, so it pays <b>1.25&times;</b>. A <b>2&ndash;1</b> could have gone either way, so it counts <b>0.75&times;</b>: the winner gains less and the loser drops less. Taking a game off the person who beats you genuinely softens the loss. Both players always use the same multiplier, so the pool stays flat.</li>
         <li>A <b>wide gap</b> leans against the higher-rated player. Up to 200 apart a match moves ratings normally. Past that, the favorite <b>wins less and loses more</b>: a win is scaled down to <b>half at 400 apart</b>, and an upset loss is scaled up to <b>1.5&times;</b>. The underdog mirrors it, losing less and gaining more, so what one side gains the other gives up. A draw counts as the favorite falling short.</li>
         <li>Everyone in a round moves off the ratings they started that round with, so results inside one round never cascade into each other.</li>
-        <li>A <b>carry-in</b> pasted from the spreadsheet replaces the skill seed for that player, so week two starts where week one finished. Anyone without a carry-in still opens on their skill seed, which is what a first-timer should get.</li>
+        <li>A <b>carry-in</b> from the spreadsheet replaces the starting 1000 for that player, so week two starts where week one finished.</li>
         <li><b>Seed</b> is where that player started, so <b>MMR</b> minus <b>Seed</b> is what they have earned tonight. The green and red figures beside MMR show exactly that.</li>
         <li><b>Perf</b> is the standard chess performance rating, <span class="formula">average opponent + 400 &times; (W &minus; L) / N</span>: how strong you played tonight judged only by who you actually beat. It ignores your own rating, so it is the fairer read on a short event.</li>
         <li><b>Conf</b> is the uncertainty band, in Glicko's spirit: wide on the first night, narrowing as matches accumulate. A rating marked <i>prov</i> has fewer than three matches behind it and should not be trusted yet.</li>
@@ -666,9 +666,10 @@ function fromGames(m){
 }
 
 /* ---------- rating ----------
-   Elo, the way chess does it, seeded by skill level instead of a flat start.
+   Elo, the way chess does it. Ratings carry over from the sheet; anyone with
+   none starts at a flat 1000 (NEW_PLAYER_MMR).
 
-     seed      900 + 50 x skill level
+     seed      the sheet's rating, else 1000
      expected  E = 1 / (1 + 10^((opponent - you) / 400))
      change    d = K x margin x (result - E)
 
@@ -694,7 +695,10 @@ var MMR_BASE = 900, MMR_PER_LEVEL = 50, K_PROV = 28, K_BASE = 20, PROV_N = 3,
 
 /* Where a player's rating starts. A carry-in from the spreadsheet wins; otherwise
    it is derived from their skill level on the brackets sheet. */
-function skillSeed(tier){ return MMR_BASE + MMR_PER_LEVEL * (Number(tier) || 0); }
+/* Anyone with no MMR on the sheet starts at a flat 1000, whatever their level.
+   The level still decides their category and who they can be paired with. */
+var NEW_PLAYER_MMR = 1000;
+function skillSeed(tier){ return NEW_PLAYER_MMR; }
 function carryOf(id){
   var c = state.carry && state.carry[id];
   return (typeof c === "number" && isFinite(c)) ? c : null;
@@ -1630,7 +1634,7 @@ function renderMmr(){
   var t = mmrTable();
   var ids = present().filter(function(id){ return !isJudge(id); });
   if(!ids.length){
-    el("mmr-body").innerHTML = '<div class="empty"><b>No players checked in</b>Ratings are seeded by skill: ' + MMR_BASE + ' for never played, up to ' + (MMR_BASE + MMR_PER_LEVEL*3) + ' for amateur. They move as soon as the first round is reported.</div>';
+    el("mmr-body").innerHTML = '<div class="empty"><b>No players checked in</b>Ratings come from the Triton MMR sheet; anyone without one starts at ' + NEW_PLAYER_MMR + '. They move as soon as the first round is reported.</div>';
     el("mmr-note").textContent = "";
     return;
   }
@@ -1641,8 +1645,8 @@ function renderMmr(){
   });
   var played = rows.filter(function(x){ return x.e.n; }).length;
   el("mmr-note").textContent = state.rounds.length
-    ? played + " of " + rows.length + " have played · seeded at " + MMR_BASE + " + " + MMR_PER_LEVEL + " per skill level"
-    : "Nothing played yet. Seeds are " + MMR_BASE + " + " + MMR_PER_LEVEL + " per skill level.";
+    ? played + " of " + rows.length + " have played · anyone without an MMR on the sheet starts at " + NEW_PLAYER_MMR
+    : "Nothing played yet. Anyone without an MMR on the sheet starts at " + NEW_PLAYER_MMR + ".";
 
   var html = '<div class="tablewrap"><table><thead><tr><th>#</th><th>Player</th><th>Skill</th>' +
     '<th>MMR</th><th>Seed</th><th>Trend</th><th>Last</th><th>Peak</th><th>Perf</th><th>Avg opp</th><th>Record</th><th>Conf</th></tr></thead><tbody>';
@@ -2277,7 +2281,7 @@ el("btn-carry").addEventListener("click", function(){
 
 el("btn-carry-clear").addEventListener("click", function(){
   state.carry = {};
-  el("carry-note").textContent = "Carry-ins cleared. Everyone is back on their skill seed.";
+  el("carry-note").textContent = "Carry-ins cleared. Everyone is back to " + NEW_PLAYER_MMR + ".";
   touch();
 });
 
@@ -2596,7 +2600,7 @@ function levelFor(answer, current){
   /* "I played here before!" (formerly "I played at Triton Nexus Nights before!"):
      a returning player, who should already have an MMR on the sheet. */
   if(/played here|triton nexus nights before|in the system/.test(a)) return {tier: current === undefined ? 3 : current, known:true};
-  if(/progamer|competitive/.test(a)) return {tier:3, seed:skillSeed(4)};
+  if(/progamer|competitive/.test(a)) return {tier:3};
   if(/nexus/.test(a))   return {tier:3};
   if(/amateur/.test(a)) return {tier:2.5};
   if(/noob/.test(a))    return {tier:2};
@@ -2651,8 +2655,7 @@ function applySignups(rows, ratings, iso){
       out.rated++;
     } else {
       if(lvl){ p.tier = lvl.tier; p.judge = false; }
-      if(lvl && lvl.seed) state.carry[p.id] = lvl.seed;
-      else delete state.carry[p.id];
+      delete state.carry[p.id];
       if(lvl && lvl.known) out.missing.push(nm);
       out.seeded++;
     }
@@ -2826,12 +2829,12 @@ async function loadSignups(checkinsOnly){
          present().length + " on the floor"]
       : [r.total + " signed up for " + prettyDate(want),
          r.rated + " with an MMR on the sheet",
-         r.seeded + " seeded from their experience answer"];
+         r.seeded + " with no MMR, started at " + NEW_PLAYER_MMR];
     if(!checkinsOnly && r.added.length) bits.push("new to the roster: " + r.added.join(", "));
     if(!checkinsOnly && checked) bits.push(checked + " checked in from the sheet");
     if(b.added.length) bits.push("ticked Checked in, new to the roster: " + b.added.join(", "));
     if(c.added.length) bits.push("checked in without a signup, added at never played: " + c.added.join(", "));
-    if(r.missing.length) bits.push("said they have played here but have no MMR on the sheet, seeded as Nexus Nights: " + r.missing.join(", "));
+    if(r.missing.length) bits.push("said they have played here but have no MMR on the sheet, started at " + NEW_PLAYER_MMR + ": " + r.missing.join(", "));
     if(!log && !b.found) bits.push("no “" + CHECKIN_TAB + "” tab and no “Checked in” column found");
     touch();
     note.textContent = bits.join(" · ");
@@ -2895,7 +2898,7 @@ async function pullRatings(quiet){
     touch();
     say(hit + " rating" + (hit === 1 ? "" : "s") + " pulled in" +
         (miss.length ? " · on the sheet but not on the roster: " + miss.join(", ") : "") +
-        " · everyone else starts on their skill seed.");
+        " · everyone else starts at " + NEW_PLAYER_MMR + ".");
     return hit;
   }catch(e){
     say("Could not read the Ratings tab: " + e.message +
