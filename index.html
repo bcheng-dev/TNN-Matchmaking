@@ -3060,7 +3060,7 @@ el("btn-publish").addEventListener("click", async function(){
 
 /* Mirror a check-in or check-out onto the signup sheet's "Checked in" box. A GET,
    so an older script that does not know the action just says so and changes nothing. */
-var SCRIPT_VERSION = "10-past-guard";
+var SCRIPT_VERSION = "11-balances";
 async function sheetCheckin(id, on){
   if(!apiBase()) return;
   var date = state.event.date || todayISO();

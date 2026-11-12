@@ -54,7 +54,7 @@
 
 /* Bump this whenever you edit the file. The pairings and standings pages show it,
    so you can tell at a glance whether the deployment is serving the new code. */
-var VERSION = '10-past-guard';
+var VERSION = '11-balances';
 
 /* The signup form's spreadsheet, where the "Checked in" boxes live. */
 var SIGNUP_SHEET_ID = '1Tsoclk1mt6Yr8r2z9vT-j5KSBpxx-phHeVTj17B89ac';
@@ -535,11 +535,16 @@ function writeNexus_(ss, date, awards) {
  * itself from the ledger, so it is never out of date and nobody types into it.
  */
 var BALANCES = 'Nexus Balances';
-var BALANCES_FORMULA = "=QUERY('Nexus Ledger'!A2:C, \"select B, sum(C), count(C) where B is not null and B <> '' " +
-  "group by B order by sum(C) desc label B 'Player', sum(C) 'Points', count(C) 'Entries'\", 0)";
+/* Points are turned into numbers first (a typed "5" or a blank counts as text,
+   and QUERY then refuses to sum the column), and names are trimmed so "test"
+   and "test " are one player. */
+var BALANCES_FORMULA = "=QUERY({ARRAYFORMULA(TRIM('Nexus Ledger'!B2:B)), ARRAYFORMULA(IFERROR(VALUE('Nexus Ledger'!C2:C), 0))}, " +
+  "\"select Col1, sum(Col2), count(Col2) where Col1 <> '' group by Col1 order by sum(Col2) desc " +
+  "label Col1 'Player', sum(Col2) 'Points', count(Col2) 'Entries'\", 0)";
 function balances_(ss) {
-  if (ss.getSheetByName(BALANCES)) return;
-  ss.insertSheet(BALANCES).getRange(1, 1).setFormula(BALANCES_FORMULA);
+  var sh = ss.getSheetByName(BALANCES) || ss.insertSheet(BALANCES);
+  /* Also replaces the older formula, which broke on a typed-in point value. */
+  if (sh.getRange(1, 1).getFormula() !== BALANCES_FORMULA) sh.getRange(1, 1).setFormula(BALANCES_FORMULA);
 }
 
 /** null when the request may write, otherwise the error to send back. */
