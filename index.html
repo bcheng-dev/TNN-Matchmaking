@@ -2952,6 +2952,15 @@ async function syncNow(manual, withNexus){
      totals. Only the automatic sync waits for a finished match. */
   if(!pay.p.length){ if(manual) tell("Nobody is checked in or has played yet, so there is nothing to sync."); return; }
   if(!done && !manual) return;
+  /* A board for a night that has passed never syncs by itself: that is how an
+     old night gets replaced by a stale board. A press of the button asks first. */
+  var yday = new Date(Date.now() - 864e5);
+  var cutoff = yday.getFullYear() + "-" + String(yday.getMonth()+1).padStart(2,"0") + "-" + String(yday.getDate()).padStart(2,"0");
+  if(state.event.date && state.event.date < cutoff){
+    if(!manual){ say("This board is for " + prettyDate(state.event.date) + ", which has passed, so it does not sync by itself."); return; }
+    if(!confirmBox("This board is for " + prettyDate(state.event.date) + ", a night that has passed.\n\nSyncing replaces everything the sheet has for that night with what is on this board. Only do this to correct that night.\n\nReplace it?")) return;
+    pay.overwrite = true;
+  }
   var body = JSON.stringify(Object.assign({}, pay, syncKey() ? {k:syncKey()} : {}));
   if(!manual && body === sync.sent) return;   /* nothing changed since the last sync */
   if(sync.busy){
@@ -3051,7 +3060,7 @@ el("btn-publish").addEventListener("click", async function(){
 
 /* Mirror a check-in or check-out onto the signup sheet's "Checked in" box. A GET,
    so an older script that does not know the action just says so and changes nothing. */
-var SCRIPT_VERSION = "9-nexus-log";
+var SCRIPT_VERSION = "10-past-guard";
 async function sheetCheckin(id, on){
   if(!apiBase()) return;
   var date = state.event.date || todayISO();

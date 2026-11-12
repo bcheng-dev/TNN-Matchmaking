@@ -54,7 +54,7 @@
 
 /* Bump this whenever you edit the file. The pairings and standings pages show it,
    so you can tell at a glance whether the deployment is serving the new code. */
-var VERSION = '9-nexus-log';
+var VERSION = '10-past-guard';
 
 /* The signup form's spreadsheet, where the "Checked in" boxes live. */
 var SIGNUP_SHEET_ID = '1Tsoclk1mt6Yr8r2z9vT-j5KSBpxx-phHeVTj17B89ac';
@@ -303,6 +303,14 @@ function importEvent_(data) {
     var date = dateKey_(data.d) || todayISO_();
     var eventName = String(data.ev || 'Riftbound');
 
+    /* A night that is over and already on the sheet is only replaced on purpose.
+       A board left holding an old night (or a stale date) would otherwise wipe
+       it with whatever it has. One day of grace covers a night past midnight. */
+    if (!data.overwrite && date < daysAgo_(1) && hasDate_(ss, date)) {
+      return { ok: false, code: 'past_event', date: date,
+               error: 'The sheet already has ' + date + ', a past night. Nothing was written.' };
+    }
+
     // players: [name, category, startMMR, endMMR, change, W, L, gamesW, gamesL, perf, isJudge]
     var players = (data.p || []).map(function (row) {
       return {
@@ -392,6 +400,14 @@ function writeMatchLog_(ss, date, players, matches) {
   });
 
   replaceDate_(sh, MATCH_HEADERS.length, date, rows);
+  /* Keep scores as text: Sheets otherwise reads "1-2" as a date. */
+  var mlast = sh.getLastRow();
+  if (mlast > 1) {
+    var sc = sh.getRange(2, 7, mlast - 1, 2);
+    var vals = sc.getValues().map(function (r) { return [scoreText_(r[0]), String(r[1])]; });
+    sc.setNumberFormat('@');
+    sc.setValues(vals);
+  }
   return rows.length;
 }
 
@@ -563,6 +579,22 @@ function sheet_(ss, name, headers) {
  * new rows, rewrite the tab. Deleting rows one at a time got slower with every
  * round; this costs the same whether the night has ten rows or five hundred.
  */
+/** A score cell Sheets already turned into a date (1/2/2026) back to "1-2". */
+function scoreText_(v) {
+  if (v instanceof Date) return (v.getMonth() + 1) + '-' + v.getDate();
+  var m = /^(\d+)\/(\d+)\/\d{4}$/.exec(String(v));
+  return m ? m[1] + '-' + m[2] : String(v);
+}
+
+function daysAgo_(n) {
+  return Utilities.formatDate(new Date(Date.now() - n * 864e5), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+function hasDate_(ss, date) {
+  var sh = ss.getSheetByName(EVENTS);
+  if (!sh || sh.getLastRow() < 2) return false;
+  return sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().some(function (r) { return dateKey_(r[0]) === date; });
+}
+
 function replaceDate_(sh, width, date, rows) {
   var last = sh.getLastRow();
   var keep = last > 1
