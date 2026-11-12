@@ -283,7 +283,7 @@ td.name{white-space:normal;font-weight:500}
     <span class="dirty" id="dirty" hidden>Unsaved</span>
     <button class="btn" id="btn-pull">Pull ratings</button>
     <button class="btn" id="btn-publish" title="Show the current round on the public pairings page and sync the event to the sheet">Publish pairings</button>
-    <button class="btn primary" id="btn-push" title="Sync the event to the sheet and hand out tonight's Nexus Points. Press it once the event is over; pressing again replaces the points, never adds more">Sync event to sheet</button>
+    <button class="btn primary" id="btn-push" title="Sync the event to the sheet and hand out tonight's Nexus Points. Press it once the event is over; pressing again only logs a correction for anyone whose points changed, never pays twice">Sync event to sheet</button>
   </div>
   <nav class="tabs" role="tablist">
     <button class="tab" role="tab" data-tab="pairings" aria-selected="true">Pairings</button>
@@ -2927,8 +2927,8 @@ function scheduleSync(delay){
 /* Nexus Points only travel with withNexus, which only the "Sync event to sheet"
    button sets. The automatic syncs and Publish keep the standings page live but
    leave points alone, so nobody sees (or spends in the Discord shop) points from
-   standings that are still moving. The script replaces a night's awards on every
-   such sync, so pressing the button again corrects them rather than adding more. */
+   standings that are still moving. On a later press the script adds a correction
+   row only for players whose award changed, so pressing again never pays twice. */
 async function syncNow(manual, withNexus){
   /* The status line lives on the MMR tab, so a press of the header button also
      gets a toast it can actually be seen from. */
@@ -2973,7 +2973,7 @@ async function syncNow(manual, withNexus){
     persist();
     say("Synced " + out.ratings + " ratings, " + out.eventRows + " event rows and " +
         out.matchRows + " match rows for " + out.date + "." +
-        (withNexus ? " Nexus Points: " + (out.nexusRows || 0) + " award rows (replacing any from an earlier sync)." : "") +
+        (withNexus ? " Nexus Points: " + (out.nexusRows || 0) + " new ledger rows (0 means nobody's points changed since the last sync)." : "") +
         (out.version && out.version !== SCRIPT_VERSION ? " The script is on an older version (" + out.version + "); redeploy it." : ""));
     if(manual) toast(withNexus ? "Sheet updated and Nexus Points handed out." : "Sheet updated.");
   }catch(e){
@@ -2991,7 +2991,7 @@ async function syncNow(manual, withNexus){
 el("btn-push").addEventListener("click", function(){
   if(!confirm("This also hands out tonight's Nexus Points from the standings as they are right now, " +
               "and players can spend them in the Discord shop straight away. Press it once the event is over.\n\n" +
-              "Pressing it again later replaces the points; it never adds more. Continue?")) return;
+              "Pressing it again later only adds a correction for anyone whose points changed; it never pays twice. Continue?")) return;
   syncNow(true, true);
 });
 
@@ -3046,7 +3046,7 @@ el("btn-publish").addEventListener("click", async function(){
 
 /* Mirror a check-in or check-out onto the signup sheet's "Checked in" box. A GET,
    so an older script that does not know the action just says so and changes nothing. */
-var SCRIPT_VERSION = "8-nexus-safe";
+var SCRIPT_VERSION = "9-nexus-log";
 async function sheetCheckin(id, on){
   if(!apiBase()) return;
   var date = state.event.date || todayISO();

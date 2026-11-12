@@ -33,14 +33,14 @@
  * is set, writes are open to anyone with the URL, the way they always were.
  *
  * NEXUS POINTS: the Nexus Ledger tab holds one row per award or redemption, and
- * a player's balance is the sum of their rows. Awards only arrive when an officer
- * presses "Sync event to sheet" on the board (the automatic syncs and Publish leave
- * them out), and each such sync replaces that night's award rows (Source "event")
- * rather than adding to them, so pressing it twice never pays twice. Every other
- * row, such as a Discord bot redemption or one an officer typed in, is never
- * touched, and rows are removed and added in place, so the columns after Source
- * (Discord ID) stay with their own row. Awards need the event's date: without one
- * the script refuses them, since a night filed under two dates would pay twice.
+ * a player's balance is the sum of their rows. The ledger only grows: every gain
+ * and every spend is its own row, and nothing is ever deleted or rewritten. Awards
+ * only arrive when an officer presses "Sync event to sheet" on the board (the
+ * automatic syncs and Publish leave them out). Pressing it again adds a correction
+ * row only for a player whose award changed, so it never pays twice. Awards need
+ * the event's date: without one the script refuses them, since a night filed under
+ * two dates would pay twice. The Nexus Balances tab shows everyone's current total,
+ * calculated by the sheet from the ledger.
  *
  * Syncing the same event any number of times is safe: that date's log rows are
  * replaced, and every player's lifetime totals are rebuilt from the Event Log.
@@ -54,7 +54,7 @@
 
 /* Bump this whenever you edit the file. The pairings and standings pages show it,
    so you can tell at a glance whether the deployment is serving the new code. */
-var VERSION = '8-nexus-safe';
+var VERSION = '9-nexus-log';
 
 /* The signup form's spreadsheet, where the "Checked in" boxes live. */
 var SIGNUP_SHEET_ID = '1Tsoclk1mt6Yr8r2z9vT-j5KSBpxx-phHeVTj17B89ac';
@@ -83,6 +83,7 @@ function setup() {
   sheet_(ss, EVENTS, EVENT_HEADERS);
   sheet_(ss, MATCHES, MATCH_HEADERS);
   sheet_(ss, NEXUS, NEXUS_HEADERS);
+  balances_(ss);
   Logger.log('Ready. Tabs in place on "%s".', ss.getName());
 }
 
@@ -465,32 +466,64 @@ function writeRatings_(ss, date, players) {
 }
 
 /**
- * One night's Nexus Point awards: n is [[player, points, reason], ...]. That date's
- * award rows (Source "event") are deleted and the new ones added at the bottom, so
- * re-syncing replaces the night's awards instead of adding to them. Rows are
- * deleted whole, never rewritten, because the tab is shared: the Discord bot
- * appends redemptions at any moment, and the Discord ID column sits past Source.
- * Rewriting the tab from a copy read a moment earlier could drop a redemption
- * that landed in between, or leave a Discord ID beside somebody else's row.
+ * One night's Nexus Point awards: n is [[player, points, reason], ...].
+ *
+ * The ledger only ever grows: nothing is deleted or rewritten, so it is a full log
+ * of every point anybody gained or lost. The first sync of a night adds each
+ * player's award rows. A later sync of the same night compares what each player
+ * has already been paid for that date (their Source "event" rows) with what they
+ * should get now, and adds one correction row for the difference: none when
+ * nothing changed, so pressing Sync again never pays twice.
  */
 function writeNexus_(ss, date, awards) {
   var sh = sheet_(ss, NEXUS, NEXUS_HEADERS);
   var width = NEXUS_HEADERS.length;
   var last = sh.getLastRow();
+  var paid = {}, names = {};
   if (last > 1) {
-    var vals = sh.getRange(2, 1, last - 1, width).getValues();
-    var isAward = function (r) { return dateKey_(r[0]) === date && String(r[4]) === 'event'; };
-    for (var i = vals.length - 1; i >= 0; i--) {
-      if (!isAward(vals[i])) continue;
-      var end = i;
-      while (i > 0 && isAward(vals[i - 1])) i--;
-      sh.deleteRows(i + 2, end - i + 1);   // bottom up, so the rows above keep their numbers
-    }
+    sh.getRange(2, 1, last - 1, width).getValues().forEach(function (r) {
+      if (dateKey_(r[0]) !== date || String(r[4]) !== 'event') return;
+      var k = normalize_(r[1]);
+      if (!k) return;
+      paid[k] = round1_((paid[k] || 0) + num_(r[2]));
+      names[k] = String(r[1]);
+    });
   }
-  var rows = awards.map(function (a) { return [date, String(a[0]), num_(a[1]), String(a[2] || ''), 'event']; })
-                   .filter(function (r) { return r[1] && r[2]; });
+
+  var due = {}, reasons = {}, fresh = {};
+  awards.forEach(function (a) {
+    var name = String(a[0] || '').trim(), pts = num_(a[1]), k = normalize_(name);
+    if (!k || !pts) return;
+    due[k] = round1_((due[k] || 0) + pts);
+    (reasons[k] = reasons[k] || []).push(String(a[2] || ''));
+    (fresh[k] = fresh[k] || []).push([date, name, pts, String(a[2] || ''), 'event']);
+    names[k] = name;
+  });
+
+  var rows = [];
+  Object.keys(names).forEach(function (k) {
+    var had = paid[k] || 0, want = due[k] || 0;
+    if (!(k in paid)) { rows = rows.concat(fresh[k] || []); return; }   // first sync for them
+    if (want === had) return;
+    rows.push([date, names[k], round1_(want - had),
+               'Correction after re-sync (now ' + want + ': ' + ((reasons[k] || []).join(', ') || 'no award') + ')',
+               'event']);
+  });
   if (rows.length) sh.getRange(sh.getLastRow() + 1, 1, rows.length, width).setValues(rows);
+  balances_(ss);
   return rows.length;
+}
+
+/**
+ * The Nexus Balances tab: each player's current total, worked out by the sheet
+ * itself from the ledger, so it is never out of date and nobody types into it.
+ */
+var BALANCES = 'Nexus Balances';
+var BALANCES_FORMULA = "=QUERY('Nexus Ledger'!A2:C, \"select B, sum(C), count(C) where B is not null and B <> '' " +
+  "group by B order by sum(C) desc label B 'Player', sum(C) 'Points', count(C) 'Entries'\", 0)";
+function balances_(ss) {
+  if (ss.getSheetByName(BALANCES)) return;
+  ss.insertSheet(BALANCES).getRange(1, 1).setFormula(BALANCES_FORMULA);
 }
 
 /** null when the request may write, otherwise the error to send back. */
