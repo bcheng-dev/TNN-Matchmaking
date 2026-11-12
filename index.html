@@ -1508,30 +1508,39 @@ function standingRows(cat){
   return rows;
 }
 
-/* Nexus Points for the night: everyone who played gets the attendance point, and
-   the overall top five get the placement bonus on top. Change the numbers here. */
-var NEXUS_ATTEND = 1, NEXUS_TOP = 3, NEXUS_TOP_N = 5;
+/* Nexus Points for the night. attend goes to everyone who played; the overall
+   top topN get top. stack: true adds top on top of attend, false gives the top
+   players top instead. Special nights get their own line, keyed by date.
+   Change the numbers here. */
+var NEXUS_RULES = {
+  base:         {attend:1, top:3, topN:5,  stack:true},
+  "2026-11-13": {attend:1, top:3, topN:10, stack:false}   /* special event: top 10 get 3, everyone else 1 */
+};
+function nexusRule(){ return NEXUS_RULES[state.event.date] || NEXUS_RULES.base; }
+function topAward(R){ return R.stack ? R.top + R.attend : R.top; }
 function nexusAwards(names){
-  var out = [];
-  (names || []).forEach(function(nm){ out.push([nm, NEXUS_ATTEND, "Attended"]); });
-  standingRows().slice(0, NEXUS_TOP_N).forEach(function(r, i){
-    out.push([nameOf(r.id), NEXUS_TOP, "Top " + NEXUS_TOP_N + " (#" + (i + 1) + ")"]);
+  var R = nexusRule(), out = [];
+  var tops = standingRows().slice(0, R.topN).map(function(r){ return nameOf(r.id); });
+  (names || []).forEach(function(nm){
+    if(R.stack || tops.indexOf(nm) < 0) out.push([nm, R.attend, "Attended"]);
   });
+  tops.forEach(function(nm, i){ out.push([nm, R.top, "Top " + R.topN + " (#" + (i + 1) + ")"]); });
   return out;
 }
 function placementHTML(){
   if(!state.rounds.length) return "";
   var rows = standingRows();
   if(!rows.length) return "";
-  var body = rows.slice(0, NEXUS_TOP_N).map(function(r, i){
+  var R = nexusRule();
+  var body = rows.slice(0, R.topN).map(function(r, i){
     return '<div class="leadrow' + (i === 0 ? " top" : "") + '"><span class="pos">' + (i+1) + '</span>' +
       '<span class="nm">' + esc(nameOf(r.id)) + '</span>' +
       '<span class="dk">' + r.pts + ' pts</span>' +
-      '<span class="wl">+' + (NEXUS_TOP + NEXUS_ATTEND) + ' NP</span></div>';
+      '<span class="wl">+' + topAward(R) + ' NP</span></div>';
   }).join("");
-  return '<div class="leaders"><div class="lead-head"><h3>Overall top ' + NEXUS_TOP_N + '</h3>' +
-    '<span class="count">after round ' + state.rounds.length + ' · ' + NEXUS_TOP + ' Nexus Points each, plus ' +
-    NEXUS_ATTEND + ' for everyone who played</span></div>' +
+  return '<div class="leaders"><div class="lead-head"><h3>Overall top ' + R.topN + '</h3>' +
+    '<span class="count">after round ' + state.rounds.length + ' · ' + topAward(R) + ' Nexus Points each, ' +
+    R.attend + ' for everyone else who played</span></div>' +
     '<div class="leadgrid"><div class="leadcard">' + body + '</div></div></div>';
 }
 function pct(x){ return x === null ? "—" : Math.round(x*100) + "%"; }
