@@ -1513,7 +1513,7 @@ function standingRows(cat){
    players top instead. Special nights get their own line, keyed by date.
    Change the numbers here. */
 var NEXUS_RULES = {
-  base:         {attend:1, top:3, topN:5,  stack:true},
+  base:         {attend:1, top:3, topN:5,  stack:false},  /* top 5 get 3, everyone else 1 */
   "2026-11-13": {attend:1, top:3, topN:10, stack:false}   /* special event: top 10 get 3, everyone else 1 */
 };
 function nexusRule(){ return NEXUS_RULES[state.event.date] || NEXUS_RULES.base; }
