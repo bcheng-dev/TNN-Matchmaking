@@ -24,7 +24,18 @@
  *                                     tick or untick "Checked in" on the TNN Data signups
  *   GET  ?action=publish&pub=JSON     replace the Live Pairings tab with the current round,
  *                                     which the public pairings page reads
- *   POST (body = JSON, text/plain)    write one event: ratings, event log, match log
+ *   POST (body = JSON, text/plain)    write one event: ratings, event log, match log,
+ *                                     and that night's Nexus Point awards
+ *
+ * SYNC KEY: every action that writes needs the key. Set it once in the editor:
+ * Project Settings > Script Properties > Add property, name SYNC_KEY, any long
+ * random value. Type the same value into the board's sync card. Until SYNC_KEY
+ * is set, writes are open to anyone with the URL, the way they always were.
+ *
+ * NEXUS POINTS: the Nexus Ledger tab holds one row per award or redemption, and
+ * a player's balance is the sum of their rows. Each sync replaces that night's
+ * award rows (Source "event"). Rows an officer adds by hand, such as a
+ * redemption of -10 with Source left blank, are never touched.
  *
  * Syncing the same event any number of times is safe: that date's log rows are
  * replaced, and every player's lifetime totals are rebuilt from the Event Log.
@@ -38,7 +49,7 @@
 
 /* Bump this whenever you edit the file. The pairings and standings pages show it,
    so you can tell at a glance whether the deployment is serving the new code. */
-var VERSION = '6-publish';
+var VERSION = '7-nexus';
 
 /* The signup form's spreadsheet, where the "Checked in" boxes live. */
 var SIGNUP_SHEET_ID = '1Tsoclk1mt6Yr8r2z9vT-j5KSBpxx-phHeVTj17B89ac';
@@ -48,6 +59,7 @@ var RATINGS = 'Ratings';
 var EVENTS  = 'Event Log';
 var MATCHES = 'Match Log';
 var LIVE    = 'Live Pairings';
+var NEXUS   = 'Nexus Ledger';
 
 var RATING_HEADERS = ['Player', 'Rating', 'Category', 'Events', 'Matches W', 'Matches L',
                       'Games W', 'Games L', 'Peak', 'First seen', 'Last played'];
@@ -56,6 +68,7 @@ var EVENT_HEADERS  = ['Date', 'Event', 'Player', 'Category', 'Start MMR', 'End M
 var LIVE_HEADERS   = ['Event', 'Date', 'Round', 'Method', 'Table', 'Player A', 'Player B', 'Result', 'Published'];
 var MATCH_HEADERS  = ['Date', 'Round', 'Table', 'Player', 'Opponent', 'Result', 'Score',
                       'Games', 'Note', 'MMR before', 'Change', 'MMR after'];
+var NEXUS_HEADERS  = ['Date', 'Player', 'Points', 'Reason', 'Source'];
 
 /* ---------- run this once from the editor ---------- */
 
@@ -64,6 +77,7 @@ function setup() {
   sheet_(ss, RATINGS, RATING_HEADERS);
   sheet_(ss, EVENTS, EVENT_HEADERS);
   sheet_(ss, MATCHES, MATCH_HEADERS);
+  sheet_(ss, NEXUS, NEXUS_HEADERS);
   Logger.log('Ready. Tabs in place on "%s".', ss.getName());
 }
 
@@ -76,6 +90,10 @@ function doGet(e) {
     if (action === 'ratings') return json_({ ok: true, players: readRatings_() });
     if (action === 'events')  return json_({ ok: true, events: readEvents_() });
     if (action === 'event')   return json_(readEvent_(String(e.parameter.date || '')));
+    if (action === 'publish' || action === 'checkin' || e.parameter.p) {
+      var denied = checkKey_(e.parameter.k);
+      if (denied) return json_(denied);
+    }
     if (action === 'publish') return json_(publish_(JSON.parse(String(e.parameter.pub || '{}'))));
     if (action === 'checkin') return json_(setCheckin_(String(e.parameter.name || ''),
                                                        String(e.parameter.date || ''),
@@ -92,7 +110,10 @@ function doPost(e) {
   try {
     var raw = (e && e.postData && e.postData.contents) || (e && e.parameter && e.parameter.p) || '';
     if (!raw) return json_({ ok: false, error: 'No data in the request body.' });
-    return json_(importEvent_(JSON.parse(raw)));
+    var data = JSON.parse(raw);
+    var denied = checkKey_(data.k);
+    if (denied) return json_(denied);
+    return json_(importEvent_(data));
   } catch (err) {
     return json_({ ok: false, error: String(err && err.message || err) });
   }
@@ -296,9 +317,10 @@ function importEvent_(data) {
     writeEventLog_(ss, date, eventName, players);
     var matchRows = writeMatchLog_(ss, date, players, data.m || []);
     var rated = writeRatings_(ss, date, players);
+    var nexusRows = data.n ? writeNexus_(ss, date, data.n) : 0;
 
     return { ok: true, version: VERSION, date: date, event: eventName,
-             ratings: rated, eventRows: players.length, matchRows: matchRows };
+             ratings: rated, eventRows: players.length, matchRows: matchRows, nexusRows: nexusRows };
   } finally {
     lock.releaseLock();
   }
@@ -429,6 +451,36 @@ function writeRatings_(ss, date, players) {
     sh.getRange(2, 1, rows.length, width).setValues(rows);
   }
   return written;
+}
+
+/**
+ * One night's Nexus Point awards: n is [[player, points, reason], ...]. Award rows
+ * for this date are replaced; anything typed in by hand (Source not "event"),
+ * including that night's redemptions, stays put.
+ */
+function writeNexus_(ss, date, awards) {
+  var sh = sheet_(ss, NEXUS, NEXUS_HEADERS);
+  var width = NEXUS_HEADERS.length;
+  var last = sh.getLastRow();
+  var keep = last > 1
+    ? sh.getRange(2, 1, last - 1, width).getValues().filter(function (r) {
+        if (r.every(function (v) { return String(v) === ''; })) return false;
+        return !(dateKey_(r[0]) === date && String(r[4]) === 'event');
+      })
+    : [];
+  var rows = awards.map(function (a) { return [date, String(a[0]), num_(a[1]), String(a[2] || ''), 'event']; })
+                   .filter(function (r) { return r[1] && r[2]; });
+  var all = keep.concat(rows);
+  if (last > 1) sh.getRange(2, 1, last - 1, width).clearContent();
+  if (all.length) sh.getRange(2, 1, all.length, width).setValues(all);
+  return rows.length;
+}
+
+/** null when the request may write, otherwise the error to send back. */
+function checkKey_(given) {
+  var want = PropertiesService.getScriptProperties().getProperty('SYNC_KEY');
+  if (!want) return null;
+  return String(given || '') === want ? null : { ok: false, error: 'Wrong or missing sync key.' };
 }
 
 /* ---------- helpers ---------- */
