@@ -54,11 +54,13 @@
 
 /* Bump this whenever you edit the file. The pairings and standings pages show it,
    so you can tell at a glance whether the deployment is serving the new code. */
-var VERSION = '11-balances';
+var VERSION = '12-trn-signups';
 
 /* The signup form's spreadsheet, where the "Checked in" boxes live. */
 var SIGNUP_SHEET_ID = '1Tsoclk1mt6Yr8r2z9vT-j5KSBpxx-phHeVTj17B89ac';
 var SIGNUP_TAB = 'TNN Signups';
+/* The newest signup form first; a tab without a "Checked in" column is skipped. */
+var SIGNUP_TABS = ['TRN Signups', 'TNN Signups'];
 
 var RATINGS = 'Ratings';
 var EVENTS  = 'Event Log';
@@ -222,27 +224,30 @@ function setCheckin_(name, date, on) {
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    var sh = SpreadsheetApp.openById(SIGNUP_SHEET_ID).getSheetByName(SIGNUP_TAB);
-    if (!sh) return { ok: false, error: 'No "' + SIGNUP_TAB + '" tab on the signup sheet.' };
-    var last = sh.getLastRow(), width = sh.getLastColumn();
-    if (last < 2) return { ok: true, version: VERSION, rows: 0 };
-    var head = sh.getRange(1, 1, 1, width).getValues()[0].map(function (h) { return String(h).trim(); });
-    var cName = -1, cBox = -1, cEv = [];
-    head.forEach(function (h, i) {
-      if (cName < 0 && /what is your (full )?name/i.test(h)) cName = i;
-      if (cBox < 0 && /^checked[\s-]*in$/i.test(h)) cBox = i;
-      if (/which event/i.test(h)) cEv.push(i);
+    var book = SpreadsheetApp.openById(SIGNUP_SHEET_ID), hits = 0, boxed = 0;
+    SIGNUP_TABS.forEach(function (tab) {
+      var sh = book.getSheetByName(tab);
+      if (!sh) return;
+      var last = sh.getLastRow(), width = sh.getLastColumn();
+      if (last < 2) return;
+      var head = sh.getRange(1, 1, 1, width).getValues()[0].map(function (h) { return String(h).trim(); });
+      var cName = -1, cBox = -1, cEv = [];
+      head.forEach(function (h, i) {
+        if (cName < 0 && /what is your (full )?name/i.test(h)) cName = i;
+        if (cBox < 0 && /^checked[\s-]*in$/i.test(h)) cBox = i;
+        if (/which event/i.test(h)) cEv.push(i);
+      });
+      if (cName < 0 || cBox < 0) return;
+      boxed++;
+      sh.getRange(2, 1, last - 1, width).getValues().forEach(function (r, i) {
+        if (normalize_(r[cName]) !== key) return;
+        var forDate = cEv.some(function (c) { return signupDate_(r[c], date) === date; });
+        if (!forDate) return;
+        sh.getRange(i + 2, cBox + 1).setValue(on);
+        hits++;
+      });
     });
-    if (cName < 0 || cBox < 0) return { ok: false, error: 'The signup tab needs a name column and a "Checked in" column.' };
-    var vals = sh.getRange(2, 1, last - 1, width).getValues();
-    var hits = 0;
-    vals.forEach(function (r, i) {
-      if (normalize_(r[cName]) !== key) return;
-      var forDate = cEv.some(function (c) { return signupDate_(r[c], date) === date; });
-      if (!forDate) return;
-      sh.getRange(i + 2, cBox + 1).setValue(on);
-      hits++;
-    });
+    if (!boxed) return { ok: false, error: 'No signup tab has a "Checked in" column.' };
     return { ok: true, version: VERSION, rows: hits };
   } finally {
     lock.releaseLock();

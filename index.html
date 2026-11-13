@@ -364,7 +364,7 @@ td.name{white-space:normal;font-weight:500}
         Load the signup sheet before round 1. Everyone who signed up for the event keeps their MMR from the
         Triton MMR sheet; anyone without one starts at 1000. Their experience answer sets their level, which decides
         who they can be paired with. Check-in comes from the Discord bot's verified
-        Check-in Log and from ticked boxes in the &ldquo;Checked in&rdquo; column of the TNN Signups tab; press Load checked-in again as more people arrive. Nobody is ever checked out by it.
+        Check-in Log and from ticked boxes in the &ldquo;Checked in&rdquo; column of the signup tab (TRN Signups, or TNN Signups for older events); press Load checked-in again as more people arrive. Nobody is ever checked out by it.
       </p>
       <div class="toolbar" style="margin:0">
         <select id="su-event" aria-label="Event" hidden></select>
@@ -2569,7 +2569,7 @@ function readSheetTab(tab, sheetId){
    Only the name, experience, wanted deck, event and check-in columns are read;
    emails and Discord details never leave the sheet. */
 /* "TNN Signups" first; "10/23" is the older per-event tab, kept as a fallback. */
-var SIGNUP_SHEET_ID = "1Tsoclk1mt6Yr8r2z9vT-j5KSBpxx-phHeVTj17B89ac", SIGNUP_TABS = ["TNN Signups", "10/23"],
+var SIGNUP_SHEET_ID = "1Tsoclk1mt6Yr8r2z9vT-j5KSBpxx-phHeVTj17B89ac", SIGNUP_TABS = ["TRN Signups", "TNN Signups", "10/23"],
     SIGNUP_TAB = SIGNUP_TABS[0],
     CHECKIN_TAB = "Check-in Log";
 var signupRows = null;
@@ -2620,7 +2620,7 @@ function signupEvents(rows){
 
 function applySignups(rows, ratings, iso){
   var cName = colOf(rows, /what is your (full )?name/i), cExp = colOf(rows, /experienced/i),
-      cEv = colOf(rows, /which event/i), cDeck = colOf(rows, /which deck/i);
+      cEv = colOf(rows, /which event/i), cDeck = colOf(rows, /which deck/i) || colOf(rows, /legend are you bringing/i) || colOf(rows, /which legend/i);
   var rate = {};
   ratings.forEach(function(r){
     var n = String(r["Player"] || "").trim().toLowerCase(), v = Number(r["Rating"]);
@@ -3060,7 +3060,7 @@ el("btn-publish").addEventListener("click", async function(){
 
 /* Mirror a check-in or check-out onto the signup sheet's "Checked in" box. A GET,
    so an older script that does not know the action just says so and changes nothing. */
-var SCRIPT_VERSION = "11-balances";
+var SCRIPT_VERSION = "12-trn-signups";
 async function sheetCheckin(id, on){
   if(!apiBase()) return;
   var date = state.event.date || todayISO();
