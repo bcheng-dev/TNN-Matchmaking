@@ -2683,8 +2683,11 @@ function applyCheckinLog(log, iso, rows){
   log.forEach(function(r){
     var tag = tagKey(cTag && r[cTag]);
     /* Sheet row 2 is the first response. */
-    var su = cRow ? rows[Number(r[cRow]) - 2] : null;
-    if(su && tag && fTag && tagKey(su[fTag]) && tagKey(su[fTag]) !== tag) su = null;
+    /* The same row number exists on each signup tab: take the one whose Discord
+       username matches, or the only one if there is no tag to check. */
+    var at = cRow ? rows.filter(function(x){ return x._row === Number(r[cRow]); }) : [];
+    var su = at.filter(function(x){ return tag && fTag && tagKey(x[fTag]) === tag; })[0] ||
+             (at.length === 1 && !(tag && fTag && tagKey(at[0][fTag])) ? at[0] : null);
     if(!su && tag && fTag){
       var byTag = rows.filter(function(x){ return tagKey(x[fTag]) === tag; });
       su = byTag.filter(function(x){ return signupDate(x[fEv]) === iso; })[0] || byTag[byTag.length - 1] || null;
@@ -2752,12 +2755,44 @@ function mergeEventCols(rows){
 
 /* Reads the first signup tab that holds form responses. Google serves the first
    tab when a name does not match, so each one is checked for the name column. */
+/* Every signup tab is read and merged, older tab first so a later response
+   still wins. The forms ask their questions differently, so each tab's rows are
+   put under the same headings, and each row remembers its tab and sheet row
+   (for the Check-in Log's "Signup row"). */
+var SIGNUP_KEYS = {name:"What is your full name?", exp:"How experienced are you in Riftbound?",
+  ev:"Which event are you signing up for?", tag:"What is your Discord username?",
+  deck:"Which deck", box:"Checked in"};
+function normalizeSignups(rows, tab){
+  rows = mergeEventCols(rows);
+  var c = {name:colOf(rows, /what is your (full )?name/i), exp:colOf(rows, /experienced/i),
+    ev:colOf(rows, /which event/i), tag:colOf(rows, /discord username/i),
+    deck:colOf(rows, /which deck/i) || colOf(rows, /legend are you bringing/i) || colOf(rows, /which legend/i),
+    box:colOf(rows, /^\s*checked[\s-]*in\s*$/i)};
+  return rows.map(function(r, i){
+    var o = {_tab:tab, _row:i + 2};
+    Object.keys(SIGNUP_KEYS).forEach(function(k){ o[SIGNUP_KEYS[k]] = c[k] ? r[c[k]] : ""; });
+    return o;
+  });
+}
 async function readSignupTab(){
-  for(var i=0;i<SIGNUP_TABS.length;i++){
-    var rows = await readSheetTab(SIGNUP_TABS[i], SIGNUP_SHEET_ID).catch(function(){ return null; });
-    if(rows && colOf(rows, /what is your (full )?name/i)){ SIGNUP_TAB = SIGNUP_TABS[i]; return mergeEventCols(rows); }
+  var got = await Promise.all(SIGNUP_TABS.map(function(t){
+    return readSheetTab(t, SIGNUP_SHEET_ID).catch(function(){ return null; });
+  }));
+  var all = [], used = [], seen = {};
+  /* Oldest form first. Google serves the first tab for a name it does not know,
+     so a tab that comes back identical to one already read is skipped. */
+  for(var i = SIGNUP_TABS.length - 1; i >= 0; i--){
+    var rows = got[i];
+    if(!rows || !rows.length || !colOf(rows, /what is your (full )?name/i)) continue;
+    var sig = JSON.stringify(rows);
+    if(seen[sig]) continue;
+    seen[sig] = 1;
+    all = all.concat(normalizeSignups(rows, SIGNUP_TABS[i]));
+    used.unshift(SIGNUP_TABS[i]);
   }
-  throw new Error("no “" + SIGNUP_TABS.join("” or “") + "” tab of form responses was found");
+  if(!all.length) throw new Error("no “" + SIGNUP_TABS.join("” or “") + "” tab of form responses was found");
+  SIGNUP_TAB = used.join(" + ");
+  return all;
 }
 
 /* Sheet dates arrive as "2026-10-23", "10/23/2026" or Google's "Date(2026,9,23)". */
