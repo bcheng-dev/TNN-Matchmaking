@@ -40,7 +40,8 @@
  * row only for a player whose award changed, so it never pays twice. Awards need
  * the event's date: without one the script refuses them, since a night filed under
  * two dates would pay twice. The Nexus Balances tab shows everyone's current total,
- * calculated by the sheet from the ledger.
+ * calculated by the sheet from the ledger. To change a balance by hand, type in its
+ * "Set points to" or "Add or remove" column: onEdit logs it as a ledger row.
  *
  * Syncing the same event any number of times is safe: that date's log rows are
  * replaced, and every player's lifetime totals are rebuilt from the Event Log.
@@ -54,7 +55,7 @@
 
 /* Bump this whenever you edit the file. The pairings and standings pages show it,
    so you can tell at a glance whether the deployment is serving the new code. */
-var VERSION = '12-trn-signups';
+var VERSION = '13-hand-edits';
 
 /* The signup form's spreadsheet, where the "Checked in" boxes live. */
 var SIGNUP_SHEET_ID = '1Tsoclk1mt6Yr8r2z9vT-j5KSBpxx-phHeVTj17B89ac';
@@ -546,10 +547,61 @@ var BALANCES = 'Nexus Balances';
 var BALANCES_FORMULA = "=QUERY({ARRAYFORMULA(TRIM('Nexus Ledger'!B2:B)), ARRAYFORMULA(IFERROR(VALUE('Nexus Ledger'!C2:C), 0))}, " +
   "\"select Col1, sum(Col2), count(Col2) where Col1 <> '' group by Col1 order by sum(Col2) desc " +
   "label Col1 'Player', sum(Col2) 'Points', count(Col2) 'Entries'\", 0)";
+var BALANCE_EDIT_HEADERS = ['Set points to', 'Add or remove'];
 function balances_(ss) {
   var sh = ss.getSheetByName(BALANCES) || ss.insertSheet(BALANCES);
   /* Also replaces the older formula, which broke on a typed-in point value. */
   if (sh.getRange(1, 1).getFormula() !== BALANCES_FORMULA) sh.getRange(1, 1).setFormula(BALANCES_FORMULA);
+  var head = sh.getRange(1, 4, 1, 2);
+  if (head.getValues()[0].join('|') !== BALANCE_EDIT_HEADERS.join('|')) {
+    head.setValues([BALANCE_EDIT_HEADERS]).setFontWeight('bold');
+  }
+}
+
+/**
+ * Editing points by hand. Columns A to C of Nexus Balances are worked out from the
+ * ledger and cannot be typed over, so the tab has two columns for officers:
+ *   D "Set points to":  type the balance a player should have, such as 6
+ *   E "Add or remove":  type a change, such as 2 or -3
+ * The moment either is typed, this adds a row to the Nexus Ledger for the
+ * difference (Source "manual"), clears the cell, and the totals update. So a hand
+ * edit is logged like every other gain or spend, and the bot sees it at once.
+ * A new player, not on the tab yet, gets a row typed straight into the ledger.
+ * Runs by itself on every edit (a simple trigger); nothing to deploy for it.
+ */
+function onEdit(e) {
+  if (!e || !e.range) return;
+  var sh = e.range.getSheet();
+  if (sh.getName() !== BALANCES) return;
+  var col = e.range.getColumn(), width = e.range.getNumColumns();
+  if (col + width - 1 < 4 || col > 5) return;
+  var ledger = sh.getParent().getSheetByName(NEXUS);
+  if (!ledger) return;
+
+  var who = '';
+  try { who = Session.getActiveUser().getEmail(); } catch (err) {}
+  var top = Math.max(e.range.getRow(), 2), rows = e.range.getRow() + e.range.getNumRows() - top;
+  if (rows < 1) return;
+  // Read every edited row before writing anything: the totals re-sort as soon as
+  // the ledger changes, which would move the rows still to be read.
+  var lines = sh.getRange(top, 1, rows, 5).getValues();
+  for (var k = 0; k < rows; k++) {
+    var r = top + k, line = lines[k];
+    var player = String(line[0] || '').trim(), now = num_(line[1]);
+    [3, 4].forEach(function (i) {               // D and E, zero based
+      var cell = line[i];
+      if (cell === '' || cell === null) return;
+      var n = Number(cell);
+      if (!player || !isFinite(n)) return;      // not a number, or an empty row: leave it to be fixed
+      var change = i === 3 ? round1_(n - now) : round1_(n);
+      if (change) {
+        ledger.appendRow([todayISO_(), player, change,
+          (i === 3 ? 'Set by hand to ' + n : 'Changed by hand') + (who ? ' (' + who + ')' : ''), 'manual']);
+        now = round1_(now + change);
+      }
+      sh.getRange(r, i + 1).clearContent();
+    });
+  }
 }
 
 /** null when the request may write, otherwise the error to send back. */
