@@ -415,7 +415,7 @@ td.name{white-space:normal;font-weight:500}
 
   <section class="panel" id="p-standings" hidden>
     <div class="panel-head"><h2>Standings</h2><div class="spacer"></div></div>
-    <div class="panel-head" style="margin-top:-4px"><span class="note">Event points: 3 for a win, 1 for a draw, 0 for a loss, and a bye counts as a win. Ties go to opponents' match win %, then game win %, then MMR. The overall top 5 earn Nexus Points; below that, players are ranked within each category. The judge is a filler seat and never appears here.</span></div>
+    <div class="panel-head" style="margin-top:-4px"><span class="note">Event points: 3 for a win, 1 for a draw, 0 for a loss, and a bye counts as a win. Ties go to opponents' match win %, then game win %, then opponents' game win %, then MMR. The overall top 5 earn Nexus Points; below that, players are ranked within each category. The judge is a filler seat and never appears here.</span></div>
     <div id="leaders-body"></div>
     <div id="standings-body"></div>
   </section>
@@ -1475,7 +1475,8 @@ function renderCheckin(){
 /* Event points, the usual Swiss scoring: 3 for a win, 1 for a draw, 0 for a loss,
    and a bye counts as a win. Ties go to the stronger schedule (opponents' match
    win %, each floored at a third so one bad night does not sink an opponent),
-   then game win %, then rating. The standings page ranks the same way. */
+   then game win %, then opponents' game win % (each floored at a third too), then
+   rating. The standings page ranks the same way. */
 var WIN_PTS = 3, DRAW_PTS = 1, BYE_PTS = 3, OMW_FLOOR = 1 / 3;
 function matchWinPct(r){
   var n = r.w + r.l + r.d;
@@ -1492,6 +1493,10 @@ function standingRows(cat){
       var m = matchWinPct(rec[o]);
       return a + Math.max(OMW_FLOOR, m === null ? OMW_FLOOR : m);
     }, 0) / opps.length : 0;
+    var ogw = opps.length ? opps.reduce(function(a, o){
+      var g = rec[o].gw + rec[o].gl;
+      return a + Math.max(OMW_FLOOR, g ? rec[o].gw / g : OMW_FLOOR);
+    }, 0) / opps.length : 0;
     var gplayed = r.gw + r.gl;
     return {
       id:id, w:r.w, l:r.l, d:r.d, gw:r.gw, gl:r.gl, byes:r.byes,
@@ -1499,6 +1504,7 @@ function standingRows(cat){
       mwr: matchWinPct(r),
       gwr: gplayed ? r.gw / gplayed : null,
       owr: owr,
+      ogw: ogw,
       mmr: mt[id] ? mt[id].r : 0
     };
   });
@@ -1506,6 +1512,7 @@ function standingRows(cat){
     if(b.pts !== a.pts) return b.pts - a.pts;
     if(b.owr !== a.owr) return b.owr - a.owr;
     if((b.gwr||0) !== (a.gwr||0)) return (b.gwr||0) - (a.gwr||0);
+    if(b.ogw !== a.ogw) return b.ogw - a.ogw;
     if(b.mmr !== a.mmr) return b.mmr - a.mmr;
     return nameOf(a.id).localeCompare(nameOf(b.id));
   });
