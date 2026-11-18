@@ -1596,19 +1596,24 @@ function renderStandings(){
     html += '<div class="catblock"><div class="tierhead"><span class="dot" style="background:var(' + C.css + ')"></span>' +
       '<h3>' + esc(C.name) + '</h3><span class="count">' + rows.length + ' player' + (rows.length>1?'s':'') + '</span></div>' +
       '<div class="tablewrap"><table><thead><tr><th>#</th><th>Player</th><th>Skill</th><th>Deck</th>' +
-      '<th>Points</th><th>Matches</th><th>Match win %</th><th>Games</th><th>Game win %</th><th>MMR</th><th>Bye</th><th>Opp win %</th></tr></thead><tbody>';
+      '<th>Points</th>' +
+      '<th title="Tiebreaker 1: opponents’ match win %">OMW %</th>' +
+      '<th title="Tiebreaker 2: your own game win %">Game win %</th>' +
+      '<th title="Tiebreaker 3: opponents’ game win %">OGW %</th>' +
+      '<th>Matches</th><th>Match win %</th><th>Games</th><th>MMR</th><th>Bye</th></tr></thead><tbody>';
     rows.forEach(function(r, i){
       var p = byId(r.id);
       html += '<tr><td class="num rank">' + (i+1) + '</td><td class="name">' + esc(p.name) + '</td>' +
         '<td>' + tierPill(p.tier) + '</td><td class="num" style="color:var(--muted)">' + esc(p.deck || "—") + '</td>' +
         '<td class="num" style="font-weight:600">' + r.pts + '</td>' +
+        '<td class="num">' + pct(r.owr) + '</td>' +
+        '<td class="num">' + pct(r.gwr) + '</td>' +
+        '<td class="num">' + pct(r.ogw) + '</td>' +
         '<td class="num">' + r.w + '&ndash;' + r.l + (r.d ? "&ndash;" + r.d : "") + '</td>' +
         '<td class="num">' + pct(r.mwr) + '</td>' +
         '<td class="num">' + r.gw + '&ndash;' + r.gl + '</td>' +
-        '<td class="num">' + pct(r.gwr) + '</td>' +
         '<td class="num">' + mmrCell(r.id) + '</td>' +
-        '<td class="num" style="color:var(--muted)">' + (r.byes || "—") + '</td>' +
-        '<td class="num" style="color:var(--muted)">' + pct(r.owr) + '</td></tr>';
+        '<td class="num" style="color:var(--muted)">' + (r.byes || "—") + '</td></tr>';
     });
     html += '</tbody></table></div></div>';
   });
