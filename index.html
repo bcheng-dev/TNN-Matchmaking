@@ -338,8 +338,8 @@ td.name{white-space:normal;font-weight:500}
       <ol>
         <li>Two pairing methods, chosen next to Generate round. MMR pairing follows every rule below, and because the tables are evenly matched its rating changes are 20% of a normal match. True random ignores the rules below, pairs anyone with anyone (only a rematch is avoided), and moves ratings the full amount.</li>
         <li>Within 200 MMR. Every table is kept inside a 200-point rating window, and the lowest-rated players get the closest matches. If anyone has nobody left inside it, the window widens 50 points at a time for the whole floor until everyone fits; the round says when that happened and marks any table past 200.</li>
-        <li>Swiss on effective strength, which is the skill level from the brackets sheet adjusted by today's record. One net win is worth half a point, so a 1&ndash;0 level 0 is even with a 0&ndash;1 level 1 and the two get paired.</li>
-        <li>Up to one point apart is normal once records diverge. Two or more apart is allowed only when the records cancel the gap, like a 1&ndash;0 level 0 against a 0&ndash;1 level 2. Three apart is never allowed, so level 0 never sees level 3.</li>
+        <li>Swiss score groups come first: players on the same record (3 points a win, 1 a draw) play each other, so a 2&ndash;0 meets a 2&ndash;0. When a group has an odd number, one player plays one group down. Inside a group, closer skill level and MMR decide the tables.</li>
+        <li>Skill levels up to one apart can meet. Two apart only when the lower level is two wins ahead on the night. Three apart is never allowed, so level 0 never sees level 3.</li>
         <li>Fewest mirror matchups. Two players on the same expected deck are only paired when nothing else works.</li>
         <li>No rematches while a legal fresh opponent exists.</li>
         <li>Odd attendance gives one bye, and it goes to an amateur with the lowest record, never twice to the same person. Never-played and noob players are not sat out while any amateur is available. A bye leaves MMR alone and counts as a win for event points. Where a category has to be crossed to balance the field, the volunteers listed on the Roster tab go first.</li>
@@ -837,7 +837,19 @@ function records(uptoIdx){
 
 /* ---------- pairing engine ---------- */
 var P_MIRROR = 1200, P_EFF = 240, P_RAW1 = 40, P_STRETCH = 110, P_RAW2 = 800,
-    P_REMATCH = 1e6, P_BLOCK2 = 1e7, P_BLOCK3 = 1e9, VOL_RELIEF = 30, JUDGE_PREF = 900, P_MMR = 200;
+    P_REMATCH = 5e6, P_BLOCK2 = 1e7, P_BLOCK3 = 1e9, VOL_RELIEF = 30, JUDGE_PREF = 900, P_MMR = 200;
+
+/* Swiss score groups. Players on the same event points play each other; pairing
+   across groups costs more for every win between them (squared, so one float of a
+   single win is far cheaper than any two-win gap). One win apart already outweighs
+   the rating window and every level preference short of the hard level limits, so
+   records decide who plays whom and skill and MMR only choose within a group.
+   Only a rematch or a forbidden level gap is worse. */
+var P_SCORE = 8e5;
+function eventPts(rec, id){
+  var r = rec[id];
+  return r ? 3 * r.w + r.d + 3 * (r.byes || 0) : 0;
+}
 
 /* Rating window. Everyone is paired within 200 MMR of their opponent. When that
    leaves someone with nobody inside it, the window widens 50 points at a time,
@@ -852,11 +864,11 @@ var MMR_WINDOW = 200, WINDOW_STEP = 50, P_WINDOW = 5e5,
 function mmrGap(mt, a, b){ return (mt[a] && mt[b]) ? Math.abs(mt[a].r - mt[b].r) : 0; }
 function outsideWindow(mt, a, b, win){ return !isJudge(a) && !isJudge(b) && mmrGap(mt, a, b) > win; }
 
-/* Effective strength: skill tier, adjusted by how the player is actually doing today.
-   One net win is worth half a tier, so a 1-0 tier 0 sits level with a 0-1 tier 1. */
+/* Skill level for preferring close opponents inside a score group. Records are
+   kept apart by the score groups above, so they no longer adjust this: mixing the
+   two once made a 2-0 level 0 look level with a 0-2 level 2 and paired them. */
 function effOf(rec, id){
-  var r = rec[id];
-  return tierOf(id) + 0.5 * (r ? (r.w - r.l) : 0);
+  return tierOf(id);
 }
 
 /* A two-tier gap is only allowed when today's results have already closed it:
@@ -898,6 +910,7 @@ function pairCost(rec, vols, mt, win, lo, hi){
     var rawD = Math.abs(tierOf(a) - tierOf(b));
     var effD = Math.abs(effOf(rec,a) - effOf(rec,b));
     c += Math.pow(effD, 2) * P_EFF;
+    c += Math.pow((eventPts(rec, a) - eventPts(rec, b)) / 3, 2) * P_SCORE;
 
     if(rawD >= 3){
       c += P_BLOCK3;
@@ -1152,6 +1165,8 @@ function flagsFor(m, roundIdx){
     mirror: !!(da && db && da === db),
     gap: rawD,
     effD: effD,
+    /* event points between the two going into the round: a float between score groups */
+    scoreGap: judged ? 0 : Math.abs(eventPts(rec, m.a) - eventPts(rec, m.b)),
     judge: judged,
     judgeOpp: judged ? (isJudge(m.a) ? m.b : m.a) : null,
     bridged: !judged && rawD >= 2 && rawD < 3 && bridges(rec, m.a, m.b),
@@ -1261,6 +1276,7 @@ function renderPairings(){
     if(f.bridged) fl += '<span class="flag gap">stretch, record-matched</span>';
     if(f.illegal) fl += '<span class="flag rem">too far apart</span>';
     if(f.rematch) fl += '<span class="flag rem">rematch</span>';
+    if(f.scoreGap) fl += '<span class="flag gap">different records</span>';
     if(f.wide) fl += '<span class="flag gap">' + f.mmrGap + ' mmr apart</span>';
     var names = ((byId(m.a) ? byId(m.a).name : "") + " | " + (byId(m.b) ? byId(m.b).name : "")).toLowerCase();
     var folded = isFolded(viewRound, idx);
